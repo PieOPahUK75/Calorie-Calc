@@ -399,6 +399,11 @@
 
     <button class="btn" onclick="saveSettings()">Save settings</button>
 
+    <div class="card" style="margin-top:22px;" id="cloudCard">
+      <h2>Cloud sync</h2>
+      <div id="cloudSection"></div>
+    </div>
+
     <div class="card" style="margin-top:22px;">
       <h2>Data</h2>
       <p class="subtext">Everything is stored only on this device — no account, no cloud sync. Export saves a backup you can send straight to Google Drive (or anywhere else) so you don't lose it if you lose your phone; Restore brings it back on any device.</p>
@@ -428,6 +433,11 @@
   </button>
 </nav>
 
+<!-- Firebase (used only for optional Google sign-in + cloud sync — see README for setup) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" crossorigin="anonymous"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js" crossorigin="anonymous"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js" crossorigin="anonymous"></script>
+
 <script>
 /* ---------------------------------------------------------------
    QUICK CALORIE — data model & calculations
@@ -442,6 +452,41 @@
    direction landed, which isn't meaningful as "weekly change" —
    trailing is used instead).
 ------------------------------------------------------------------ */
+
+/* ---------------------------------------------------------------
+   CLOUD SYNC (optional) — Firebase Auth + Firestore.
+   STEP 1: replace the placeholder values below with your own Firebase
+   project's config (Firebase console → Project settings → General →
+   "Your apps" → the </> web app → SDK setup snippet). See README.md
+   for the full setup walkthrough, including Firestore security rules
+   and adding your GitHub Pages domain as an authorized domain.
+   Until you do this, the app runs exactly as before — cloud sync
+   quietly stays off, nothing else changes.
+------------------------------------------------------------------ */
+const firebaseConfig = {
+  apiKey: "AIzaSyAphZ-yfpLcH8BXPYSNe77PUv8jj3MR7tw",
+  authDomain: "calorie-calc-ae84b.firebaseapp.com",
+  projectId: "calorie-calc-ae84b",
+  storageBucket: "calorie-calc-ae84b.firebasestorage.app",
+  messagingSenderId: "1000894282289",
+  appId: "1:1000894282289:web:1de9a2f4abc3bf6fcef310"
+};
+
+let cloudSyncEnabled = false;
+let fbAuth = null, fbDb = null, fbUser = null, lastSyncedAt = null, cloudBusy = false;
+
+try{
+  if(typeof firebase !== 'undefined' && firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith('PASTE_')){
+    firebase.initializeApp(firebaseConfig);
+    fbAuth = firebase.auth();
+    fbDb = firebase.firestore();
+    fbDb.enablePersistence({synchronizeTabs:true}).catch(()=>{});
+    cloudSyncEnabled = true;
+  }
+}catch(e){
+  console.warn('Firebase did not initialize — cloud sync disabled.', e);
+  cloudSyncEnabled = false;
+}
 
 const STORAGE_KEY = 'quickCalorieData_v1';
 
@@ -478,7 +523,75 @@ function loadData(){
   return { settings:{ dob:null, heightCm:null, activityKey:'little', goalWeightKg:null, weeklyLossKg:DEFAULT_WEEKLY_LOSS_KG }, entries:[] };
 }
 function saveData(d){
+  d.updatedAtLocal = Date.now();
   localStorage.setItem(STORAGE_KEY, JSON.stringify(d));
+  pushToCloud(d);
+}
+
+// Fire-and-forget push. Only runs when configured + signed in + online;
+// silently does nothing otherwise so local use is never blocked on the network.
+function pushToCloud(d){
+  if(!cloudSyncEnabled || !fbUser) return;
+  fbDb.collection('users').doc(fbUser.uid).set(d)
+    .then(()=>{ lastSyncedAt = Date.now(); renderCloudSection(); })
+    .catch(err=>{ console.warn('Cloud push failed', err); });
+}
+
+function signInWithGoogle(){
+  if(!cloudSyncEnabled) return;
+  const provider = new firebase.auth.GoogleAuthProvider();
+  // Redirect (not popup): popups are unreliable inside an installed/standalone
+  // PWA, which is how this app is meant to run on your phone.
+  fbAuth.signInWithRedirect(provider);
+}
+
+function signOutGoogle(){
+  if(!cloudSyncEnabled) return;
+  fbAuth.signOut();
+}
+
+// Runs whenever a signed-in user is detected (fresh sign-in, or an already-
+// signed-in session resuming on launch). Whoever's copy is newer wins; if
+// there's no remote copy yet, this device's local data becomes the first one.
+async function syncOnSignIn(){
+  if(!cloudSyncEnabled || !fbUser) return;
+  cloudBusy = true; renderCloudSection();
+  try{
+    const docRef = fbDb.collection('users').doc(fbUser.uid);
+    const snap = await docRef.get();
+    if(snap.exists){
+      const remote = snap.data();
+      const remoteTime = remote.updatedAtLocal || 0;
+      const localTime = DATA.updatedAtLocal || 0;
+      if(remoteTime > localTime){
+        DATA = remote;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(DATA));
+        render();
+      } else if(localTime > remoteTime){
+        await docRef.set(DATA);
+      }
+    } else {
+      await docRef.set(DATA);
+    }
+    lastSyncedAt = Date.now();
+  }catch(e){
+    console.warn('Cloud sync failed', e);
+    showToast("Couldn't reach the cloud — check your connection");
+  }
+  cloudBusy = false;
+  renderCloudSection();
+}
+
+function initCloudAuth(){
+  if(!cloudSyncEnabled) return;
+  fbAuth.getRedirectResult().catch(err=>{
+    showToast('Sign-in failed: ' + (err.message || err.code || 'unknown error'));
+  });
+  fbAuth.onAuthStateChanged(user=>{
+    fbUser = user;
+    renderCloudSection();
+    if(user) syncOnSignIn();
+  });
 }
 let DATA = loadData();
 
@@ -584,6 +697,8 @@ function renderSettingsView(){
     grid.appendChild(btn);
   });
 
+  renderCloudSection();
+
   const lossInput = document.getElementById('inWeeklyLoss');
   lossInput.value = s.weeklyLossKg ?? DEFAULT_WEEKLY_LOSS_KG;
   lossInput.oninput = ()=>{
@@ -630,6 +745,32 @@ function updateWeeklyLossDisplay(){
   } else {
     warnEl.style.display = 'none';
   }
+}
+
+function renderCloudSection(){
+  const el = document.getElementById('cloudSection');
+  if(!el) return;
+
+  if(!cloudSyncEnabled){
+    el.innerHTML = `<p class="subtext">Not set up yet. See README.md for a short one-time Firebase setup, then this becomes a "Sign in with Google" button. Nothing else about the app changes until you do this.</p>`;
+    return;
+  }
+
+  if(!fbUser){
+    el.innerHTML = `
+      <p class="subtext">Sign in to back up your data to the cloud and keep it in sync if you ever use this on more than one device. A connection and sign-in are required to upload — everything still works offline without it.</p>
+      <button class="btn secondary" onclick="signInWithGoogle()">Sign in with Google</button>
+    `;
+    return;
+  }
+
+  const lastSyncText = lastSyncedAt ? new Date(lastSyncedAt).toLocaleString(undefined,{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : 'never';
+  el.innerHTML = `
+    <div class="goal-row"><span class="l">Signed in as</span><span class="v" style="font-weight:600;">${fbUser.email || fbUser.displayName || 'Google account'}</span></div>
+    <div class="goal-row"><span class="l">Last synced</span><span class="v">${cloudBusy ? 'Syncing…' : lastSyncText}</span></div>
+    <button class="btn secondary" onclick="syncOnSignIn()" ${cloudBusy?'disabled':''}>Sync now</button>
+    <button class="btn secondary" onclick="signOutGoogle()">Sign out</button>
+  `;
 }
 
 function renderTodayView(){
@@ -1050,6 +1191,7 @@ function clearAllData(){
 /* ---------------- init ---------------- */
 render();
 goTo(settingsComplete() ? 'today' : 'settings');
+initCloudAuth();
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
