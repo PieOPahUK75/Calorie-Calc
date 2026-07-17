@@ -246,6 +246,20 @@
   }
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
+  .range-row{display:flex;gap:8px;margin-bottom:12px;}
+  .range-btn{
+    flex:1;
+    text-align:center;
+    padding:8px 4px;
+    border-radius:8px;
+    background:var(--card-2);
+    border:1px solid var(--border);
+    color:var(--muted);
+    font-size:12.5px;
+    font-weight:600;
+    cursor:pointer;
+  }
+  .range-btn.active{background:rgba(34,193,123,.15);border-color:var(--accent);color:var(--accent);}
   svg.chart{width:100%;height:auto;display:block;}
   .chart-legend{display:flex;gap:16px;font-size:11.5px;color:var(--muted);margin-top:8px;flex-wrap:wrap;}
   .chart-legend span{display:inline-flex;align-items:center;gap:5px;}
@@ -334,12 +348,14 @@
   <section class="view" id="view-history">
     <div class="card" id="chartCard" style="display:none;">
       <h2>Weight trend</h2>
+      <div class="range-row" id="rangeRow"></div>
       <div id="chartWrap"></div>
       <div class="chart-legend">
         <span><i style="background:var(--accent)"></i>Actual</span>
-        <span><i style="background:var(--warn)"></i>Predicted trend</span>
+        <span><i style="background:var(--warn)"></i>Trend / forecast</span>
         <span><i style="background:var(--muted)"></i>Goal</span>
       </div>
+      <p class="subtext" id="rangeStat"></p>
     </div>
     <div class="card">
       <h2>Log</h2>
@@ -431,6 +447,22 @@ function saveData(d){
   localStorage.setItem(STORAGE_KEY, JSON.stringify(d));
 }
 let DATA = loadData();
+
+const RANGE_OPTIONS = [
+  { key:'7d',  label:'7D',  days:7   },
+  { key:'30d', label:'30D', days:30  },
+  { key:'1y',  label:'1Y',  days:365 },
+  { key:'all', label:'All', days:null },
+];
+let historyRange = 'all';
+
+function windowedEntries(entries, range){
+  if(range==='all' || entries.length===0) return entries;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const opt = RANGE_OPTIONS.find(o=>o.key===range);
+  const start = dateAddDays(today, -(opt.days-1));
+  return entries.filter(e => new Date(e.date+'T00:00:00') >= start);
+}
 
 function todayStr(){
   const d = new Date();
@@ -568,29 +600,65 @@ function renderTodayView(){
     document.getElementById('gWeeklyChange').textContent = trend.avgWeekly==null ? '–' : (trend.avgWeekly>=0?'+':'') + trend.avgWeekly.toFixed(2) + ' kg/week';
 
     const predEl = document.getElementById('gPrediction');
-    if(trend.avgDaily != null && trend.avgDaily < -0.001 && left > 0){
-      const daysToGoal = Math.ceil(left / (-trend.avgDaily));
-      const goalDate = new Date(); goalDate.setDate(goalDate.getDate()+daysToGoal);
-      predEl.textContent = `At your average rate of loss, you're projected to reach your goal around ${goalDate.toLocaleDateString(undefined,{day:'numeric',month:'long',year:'numeric'})} (~${daysToGoal} days).`;
-    } else if(left <= 0){
+    const today = new Date();
+    if(left <= 0){
       predEl.textContent = `You've reached or passed your goal weight.`;
     } else if(entries.length < 2){
       predEl.textContent = `Log a few more days to see a projected goal date.`;
     } else {
-      predEl.textContent = `Your average trend isn't currently moving toward your goal.`;
+      const goalDate = goalDateFromTrend(trend, goal);
+      if(goalDate && goalDate > today){
+        const daysToGoal = Math.ceil(daysBetweenDates(today, goalDate));
+        predEl.textContent = `Based on your overall weigh-in trend (fitted across all logged days, so missed weigh-ins don't skew it), you're projected to reach your goal around ${goalDate.toLocaleDateString(undefined,{day:'numeric',month:'long',year:'numeric'})} (~${daysToGoal} days).`;
+      } else {
+        predEl.textContent = `Your overall trend isn't currently moving toward your goal.`;
+      }
     }
   } else {
     goalCard.style.display='none';
   }
 }
 
+/* Linear regression (least squares) of weight vs. calendar day, fitted across
+   every logged entry regardless of gaps between weigh-ins. This is what makes
+   the trend/prediction robust to missed days: a skipped week doesn't distort
+   the rate the way a naive "last minus first" calculation would. */
 function computeTrend(entries){
-  if(entries.length < 2) return {avgDaily:null, avgWeekly:null};
-  const first = entries[0], last = entries[entries.length-1];
-  const days = (new Date(last.date+'T00:00:00') - new Date(first.date+'T00:00:00'))/86400000;
-  if(days <= 0) return {avgDaily:null, avgWeekly:null};
-  const avgDaily = (last.weightKg - first.weightKg) / days;
-  return { avgDaily, avgWeekly: avgDaily*7 };
+  if(entries.length < 2) return {avgDaily:null, avgWeekly:null, slope:null, intercept:null, x0:null};
+  const x0 = new Date(entries[0].date+'T00:00:00');
+  const pts = entries.map(e=>({ x:(new Date(e.date+'T00:00:00')-x0)/86400000, y:e.weightKg }));
+  const n = pts.length;
+  const sumX = pts.reduce((s,p)=>s+p.x,0);
+  const sumY = pts.reduce((s,p)=>s+p.y,0);
+  const sumXY = pts.reduce((s,p)=>s+p.x*p.y,0);
+  const sumXX = pts.reduce((s,p)=>s+p.x*p.x,0);
+  const denom = n*sumXX - sumX*sumX;
+  let slope, intercept;
+  if(denom === 0){ slope = 0; intercept = sumY/n; }
+  else {
+    slope = (n*sumXY - sumX*sumY) / denom;
+    intercept = (sumY - slope*sumX) / n;
+  }
+  return { avgDaily: slope, avgWeekly: slope*7, slope, intercept, x0 };
+}
+function dateAddDays(dateObj, days){
+  const d = new Date(dateObj.getTime());
+  d.setDate(d.getDate()+days);
+  return d;
+}
+function daysBetweenDates(a,b){ return (b-a)/86400000; }
+// Predicted weight on a given date, per the fitted trend line.
+function predictedWeightOnDate(trend, dateObj){
+  if(trend.slope==null) return null;
+  const x = daysBetweenDates(trend.x0, dateObj);
+  return trend.intercept + trend.slope*x;
+}
+// Returns the Date the trend line crosses the goal weight, or null if the
+// trend isn't moving toward the goal (flat or the wrong direction).
+function goalDateFromTrend(trend, goalWeightKg){
+  if(trend.slope==null || Math.abs(trend.slope) < 0.0005) return null;
+  const xGoal = (goalWeightKg - trend.intercept) / trend.slope;
+  return dateAddDays(trend.x0, xGoal);
 }
 
 function renderHistoryView(){
@@ -604,13 +672,33 @@ function renderHistoryView(){
     return;
   }
 
-  // chart
-  chartCard.style.display = entries.length>=2 ? 'block' : 'none';
-  if(entries.length>=2){
-    document.getElementById('chartWrap').innerHTML = buildChartSVG(entries);
+  chartCard.style.display = 'block';
+
+  const rangeRow = document.getElementById('rangeRow');
+  rangeRow.innerHTML = '';
+  RANGE_OPTIONS.forEach(opt=>{
+    const btn = document.createElement('div');
+    btn.className = 'range-btn' + (historyRange===opt.key ? ' active' : '');
+    btn.textContent = opt.label;
+    btn.onclick = ()=>{ historyRange = opt.key; renderHistoryView(); };
+    rangeRow.appendChild(btn);
+  });
+
+  document.getElementById('chartWrap').innerHTML = buildChartSVG(entries, historyRange);
+
+  const statEl = document.getElementById('rangeStat');
+  const win = windowedEntries(entries, historyRange);
+  const rangeLabel = RANGE_OPTIONS.find(o=>o.key===historyRange).label;
+  if(win.length>=2){
+    const change = win[win.length-1].weightKg - win[0].weightKg;
+    statEl.textContent = `Change over ${rangeLabel==='All' ? 'all time' : 'last '+rangeLabel}: ${change>=0?'+':''}${change.toFixed(1)} kg`;
+  } else if(win.length===1){
+    statEl.textContent = `Only one entry in this range so far — log a few more to see a change.`;
+  } else {
+    statEl.textContent = `No entries logged in this range.`;
   }
 
-  // table, most recent first
+  // table, most recent first (always shows full history, independent of the chart range)
   const rows = [...entries].reverse().map((e,idx)=>{
     const realIdx = entries.length-1-idx;
     const prev = entries[realIdx-1];
@@ -634,45 +722,79 @@ function renderHistoryView(){
   </table>`;
 }
 
-function buildChartSVG(entries){
-  const W = 480, H = 220, padL = 34, padR = 10, padT = 14, padB = 24;
-  const weights = entries.map(e=>e.weightKg);
+function buildChartSVG(entries, range){
   const goal = DATA.settings.goalWeightKg;
-  let minW = Math.min(...weights);
-  let maxW = Math.max(...weights);
-  if(goal){ minW = Math.min(minW, goal); maxW = Math.max(maxW, goal); }
+  const today = new Date(); today.setHours(0,0,0,0);
+  const firstDate = new Date(entries[0].date+'T00:00:00');
+
+  // Domain (date range shown on the x-axis)
+  let domainStart;
+  if(range==='all'){
+    domainStart = firstDate;
+  } else {
+    const opt = RANGE_OPTIONS.find(o=>o.key===range);
+    domainStart = dateAddDays(today, -(opt.days-1));
+  }
+  let domainEnd = today;
+
   const trend = computeTrend(entries);
 
-  // predicted trend line extension (30 days forward) if we have a rate
-  let predPoints = [];
-  if(trend.avgDaily != null){
-    const last = entries[entries.length-1];
-    const lastDate = new Date(last.date+'T00:00:00');
-    for(let d=0; d<=30; d+=5){
-      const w = last.weightKg + trend.avgDaily*d;
-      predPoints.push(w);
+  // For "all", stretch the right edge forward to show the forecast:
+  // to the projected goal-crossing date if there is one, otherwise a modest 30-day peek.
+  if(range==='all' && trend.slope!=null){
+    let forecastEnd;
+    const goalDate = goal ? goalDateFromTrend(trend, goal) : null;
+    if(goalDate && goalDate > today){
+      const capped = dateAddDays(today, 365);
+      forecastEnd = goalDate < capped ? goalDate : capped;
+    } else {
+      forecastEnd = dateAddDays(today, 30);
+    }
+    if(forecastEnd > domainEnd) domainEnd = forecastEnd;
+  }
+
+  const visible = windowedEntries(entries, range);
+  if(visible.length===0){
+    return `<div class="empty">No entries in this range.</div>`;
+  }
+
+  const W = 480, H = 220, padL = 34, padR = 10, padT = 14, padB = 24;
+  const totalSpanDays = Math.max(1, daysBetweenDates(domainStart, domainEnd));
+  const xAt = d => padL + (W-padL-padR) * (daysBetweenDates(domainStart, d) / totalSpanDays);
+
+  let minW = Math.min(...visible.map(e=>e.weightKg));
+  let maxW = Math.max(...visible.map(e=>e.weightKg));
+  if(goal){ minW = Math.min(minW, goal); maxW = Math.max(maxW, goal); }
+
+  // Sample the fitted trend line across the whole visible domain (historical fit + any forecast).
+  let trendSamples = [];
+  if(trend.slope!=null){
+    const steps = 24;
+    for(let i=0;i<=steps;i++){
+      const d = dateAddDays(domainStart, totalSpanDays*i/steps);
+      const w = predictedWeightOnDate(trend, d);
+      trendSamples.push({d, w});
       minW = Math.min(minW, w); maxW = Math.max(maxW, w);
     }
   }
 
   const span = (maxW - minW) || 1;
   minW -= span*0.08; maxW += span*0.08;
-
-  const n = entries.length;
-  const xAt = i => padL + (W-padL-padR) * (i/(n-1||1));
   const yAt = w => padT + (H-padT-padB) * (1 - (w-minW)/(maxW-minW));
 
-  const actualPath = entries.map((e,i)=> `${i===0?'M':'L'} ${xAt(i).toFixed(1)} ${yAt(e.weightKg).toFixed(1)}`).join(' ');
+  const actualPath = visible.map((e,i)=>{
+    const d = new Date(e.date+'T00:00:00');
+    return `${i===0?'M':'L'} ${xAt(d).toFixed(1)} ${yAt(e.weightKg).toFixed(1)}`;
+  }).join(' ');
 
-  let predPath = '';
-  if(predPoints.length){
-    const totalSteps = predPoints.length-1;
-    const lastX = xAt(n-1);
-    const extra = (W-padR-lastX);
-    predPath = predPoints.map((w,i)=>{
-      const x = lastX + extra*(i/totalSteps);
-      return `${i===0?'M':'L'} ${x.toFixed(1)} ${yAt(w).toFixed(1)}`;
-    }).join(' ');
+  const dots = visible.map(e=>{
+    const d = new Date(e.date+'T00:00:00');
+    return `<circle cx="${xAt(d).toFixed(1)}" cy="${yAt(e.weightKg).toFixed(1)}" r="3" fill="var(--accent)"/>`;
+  }).join('');
+
+  let trendPath = '';
+  if(trendSamples.length){
+    trendPath = trendSamples.map((p,i)=>`${i===0?'M':'L'} ${xAt(p.d).toFixed(1)} ${yAt(p.w).toFixed(1)}`).join(' ');
   }
 
   let goalLine = '';
@@ -681,7 +803,12 @@ function buildChartSVG(entries){
     goalLine = `<line x1="${padL}" y1="${gy}" x2="${W-padR}" y2="${gy}" stroke="var(--muted)" stroke-dasharray="4 4" stroke-width="1.5"/>`;
   }
 
-  const dots = entries.map((e,i)=>`<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(e.weightKg).toFixed(1)}" r="3" fill="var(--accent)"/>`).join('');
+  // Marks "today" when the domain stretches into the future (all-time forecast view).
+  let todayLine = '';
+  if(domainEnd > today){
+    const tx = xAt(today).toFixed(1);
+    todayLine = `<line x1="${tx}" y1="${padT}" x2="${tx}" y2="${H-padB}" stroke="var(--border)" stroke-width="1"/>`;
+  }
 
   const yTop = maxW.toFixed(0), yBot = minW.toFixed(0);
 
@@ -689,8 +816,9 @@ function buildChartSVG(entries){
     <text x="2" y="${padT+6}" font-size="10" fill="var(--muted)">${yTop}</text>
     <text x="2" y="${H-padB+4}" font-size="10" fill="var(--muted)">${yBot}</text>
     ${goalLine}
+    ${todayLine}
+    ${trendPath ? `<path d="${trendPath}" fill="none" stroke="var(--warn)" stroke-width="2" stroke-dasharray="3 3"/>` : ''}
     <path d="${actualPath}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
-    ${predPath ? `<path d="${predPath}" fill="none" stroke="var(--warn)" stroke-width="2" stroke-dasharray="3 3"/>` : ''}
     ${dots}
   </svg>`;
 }
