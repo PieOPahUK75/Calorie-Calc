@@ -401,8 +401,10 @@
 
     <div class="card" style="margin-top:22px;">
       <h2>Data</h2>
-      <p class="subtext">Everything is stored only on this device. No account, no cloud sync.</p>
+      <p class="subtext">Everything is stored only on this device — no account, no cloud sync. Export saves a backup you can send straight to Google Drive (or anywhere else) so you don't lose it if you lose your phone; Restore brings it back on any device.</p>
       <button class="btn secondary" onclick="exportData()">Export backup (.json)</button>
+      <input type="file" id="importFile" accept="application/json,.json" style="display:none;" onchange="importData(event)">
+      <button class="btn secondary" onclick="document.getElementById('importFile').click()">Restore from backup</button>
       <button class="btn danger" onclick="clearAllData()">Erase all data</button>
     </div>
   </section>
@@ -981,16 +983,58 @@ function deleteEntry(date){
   render();
 }
 
-function exportData(){
+async function exportData(){
+  const filename = 'quick-calorie-backup-'+todayStr()+'.json';
   const blob = new Blob([JSON.stringify(DATA,null,2)], {type:'application/json'});
+
+  // On Android Chrome this opens the native share sheet, so the backup can go
+  // straight to Google Drive (or anywhere else) in one tap.
+  try{
+    const file = new File([blob], filename, {type:'application/json'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({files:[file], title:'Quick Calorie backup'});
+      return;
+    }
+  }catch(e){
+    // share cancelled or unsupported — fall through to a plain download
+  }
+
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'quick-calorie-backup-'+todayStr()+'.json';
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+function importData(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const parsed = JSON.parse(reader.result);
+      if(!parsed || typeof parsed !== 'object' || !parsed.settings || !Array.isArray(parsed.entries)){
+        showToast("That doesn't look like a Quick Calorie backup file");
+        return;
+      }
+      const count = parsed.entries.length;
+      const ok = confirm(`Restore this backup? It contains ${count} logged day(s) and will replace everything currently saved on this device.`);
+      if(!ok) return;
+      if(parsed.settings.weeklyLossKg == null) parsed.settings.weeklyLossKg = DEFAULT_WEEKLY_LOSS_KG;
+      DATA = parsed;
+      saveData(DATA);
+      render();
+      goTo(settingsComplete() ? 'today' : 'settings');
+      showToast('Backup restored');
+    } catch(e){
+      showToast("Couldn't read that file — is it a valid backup?");
+    }
+    event.target.value = '';
+  };
+  reader.readAsText(file);
 }
 
 function clearAllData(){
