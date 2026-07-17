@@ -122,6 +122,29 @@
     color:var(--bad);
     border:1px solid #4a2b29;
   }
+  .google-btn{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:10px;
+    width:100%;
+    background:#fff;
+    color:#1f1f1f;
+    border:1px solid #747775;
+    border-radius:8px;
+    padding:11px 16px;
+    font-size:14px;
+    font-weight:500;
+    font-family:Roboto,Arial,sans-serif;
+    cursor:pointer;
+    margin-top:14px;
+  }
+  .google-btn:active{background:#f2f2f2;}
+  .cloud-badge{
+    font-size:11px;
+    color:var(--muted);
+    margin-top:2px;
+  }
   .exercise-grid{
     display:grid;
     grid-template-columns:1fr 1fr;
@@ -277,7 +300,10 @@
 
 <header>
   <h1>Quick Calorie</h1>
-  <div class="date" id="headerDate"></div>
+  <div style="text-align:right;">
+    <div class="date" id="headerDate"></div>
+    <div class="cloud-badge" id="cloudBadge"></div>
+  </div>
 </header>
 
 <main>
@@ -585,6 +611,7 @@ async function syncOnSignIn(){
       await docRef.set(DATA);
     }
     lastSyncedAt = Date.now();
+    showToast('Synced with the cloud');
   }catch(e){
     console.warn('Cloud sync failed', e);
     showToast("Couldn't reach the cloud — check your connection");
@@ -595,8 +622,18 @@ async function syncOnSignIn(){
 
 function initCloudAuth(){
   if(!cloudSyncEnabled) return;
-  fbAuth.getRedirectResult().catch(err=>{
+  fbAuth.getRedirectResult().then(result=>{
+    // This branch only runs right after coming back from the Google sign-in
+    // redirect. Previously nothing told you it worked — the app just reloaded
+    // straight to the Today tab and the confirmation was invisible on the
+    // Settings tab. Now: jump to Settings and say so explicitly.
+    if(result && result.user){
+      showToast('Signed in — syncing…');
+      goTo('settings');
+    }
+  }).catch(err=>{
     showToast('Sign-in failed: ' + (err.message || err.code || 'unknown error'));
+    goTo('settings');
   });
   fbAuth.onAuthStateChanged(user=>{
     fbUser = user;
@@ -758,8 +795,16 @@ function updateWeeklyLossDisplay(){
   }
 }
 
+const GOOGLE_G_LOGO = `<svg width="18" height="18" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+  <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.7-6.1 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.1 8 3.1l6-6C34.6 5.1 29.6 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21 21-9.4 21-21c0-1.4-.1-2.7-.4-4z"/>
+  <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.6 18.9 13 24 13c3.1 0 5.9 1.1 8 3.1l6-6C34.6 5.1 29.6 3 24 3 16.2 3 9.4 7.4 6.3 14.7z"/>
+  <path fill="#4CAF50" d="M24 45c5.5 0 10.4-1.9 14.3-5.1l-6.6-5.6C29.6 36 26.9 37 24 37c-5.2 0-9.6-3.3-11.3-7.9l-6.6 5.1C9.4 40.6 16.2 45 24 45z"/>
+  <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.2 4.2-4 5.6l6.6 5.6C40.9 36.6 45 30.9 45 24c0-1.4-.1-2.7-.4-3.5z"/>
+</svg>`;
+
 function renderCloudSection(){
   const el = document.getElementById('cloudSection');
+  renderCloudBadge();
   if(!el) return;
 
   if(!cloudSyncEnabled){
@@ -770,18 +815,44 @@ function renderCloudSection(){
   if(!fbUser){
     el.innerHTML = `
       <p class="subtext">Sign in to back up your data to the cloud and keep it in sync if you ever use this on more than one device. A connection and sign-in are required to upload — everything still works offline without it.</p>
-      <button class="btn secondary" onclick="signInWithGoogle()">Sign in with Google</button>
+      <button class="google-btn" onclick="signInWithGoogle()">${GOOGLE_G_LOGO}<span>Sign in with Google</span></button>
     `;
     return;
   }
 
-  const lastSyncText = lastSyncedAt ? new Date(lastSyncedAt).toLocaleString(undefined,{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : 'never';
+  const lastSyncText = lastSyncedAt ? new Date(lastSyncedAt).toLocaleString(undefined,{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : 'not yet';
   el.innerHTML = `
     <div class="goal-row"><span class="l">Signed in as</span><span class="v" style="font-weight:600;">${fbUser.email || fbUser.displayName || 'Google account'}</span></div>
     <div class="goal-row"><span class="l">Last synced</span><span class="v">${cloudBusy ? 'Syncing…' : lastSyncText}</span></div>
     <button class="btn secondary" onclick="syncOnSignIn()" ${cloudBusy?'disabled':''}>Sync now</button>
     <button class="btn secondary" onclick="signOutGoogle()">Sign out</button>
   `;
+}
+
+// Small always-visible indicator (shown in the header, on every tab) so it's
+// obvious at a glance whether your data is actually backed up — not just
+// buried in the Settings tab.
+function renderCloudBadge(){
+  const el = document.getElementById('cloudBadge');
+  if(!el) return;
+  if(!cloudSyncEnabled || !fbUser){
+    el.textContent = cloudSyncEnabled ? '☁ Not signed in' : '';
+    el.style.color = 'var(--muted)';
+    return;
+  }
+  if(cloudBusy){
+    el.textContent = '☁ Syncing…';
+    el.style.color = 'var(--warn)';
+    return;
+  }
+  if(lastSyncedAt){
+    const mins = Math.round((Date.now()-lastSyncedAt)/60000);
+    el.textContent = '☁ Synced ' + (mins < 1 ? 'just now' : mins < 60 ? `${mins}m ago` : new Date(lastSyncedAt).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}));
+    el.style.color = 'var(--accent)';
+  } else {
+    el.textContent = '☁ Signed in';
+    el.style.color = 'var(--muted)';
+  }
 }
 
 function renderTodayView(){
