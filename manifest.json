@@ -1,0 +1,17 @@
+{
+  "background_color": "#ffffff",
+  "dir": "ltr",
+  "display": "standalone",
+  "name": "Calories Calc",
+  "orientation": "any",
+  "scope": "/",
+  "short_name": "calorie-calc-v1.0.0",
+  "start_url": "/",
+  "theme_color": "#ffffff",
+  "id": "id-cc.v.1.0.0",
+  "description": "A simple calorie calculator to see how many calories are needed to lose weight",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

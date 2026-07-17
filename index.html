@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1b6e4f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Quick Calorie">
+<title>Quick Calorie</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<style>
+  :root{
+    --bg:#0f1512;
+    --card:#182420;
+    --card-2:#1f2e28;
+    --border:#2a3a33;
+    --text:#eef3f0;
+    --muted:#9db2a9;
+    --accent:#22c17b;
+    --accent-2:#1b6e4f;
+    --warn:#e0a742;
+    --bad:#e0625c;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  header{
+    padding:18px 20px 14px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+  }
+  header h1{
+    font-size:19px;
+    margin:0;
+    font-weight:700;
+    letter-spacing:.2px;
+  }
+  header .date{
+    font-size:12px;
+    color:var(--muted);
+  }
+  main{
+    padding:0 16px 90px;
+    max-width:520px;
+    margin:0 auto;
+  }
+  .view{display:none;}
+  .view.active{display:block;animation:fade .18s ease;}
+  @keyframes fade{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
+
+  .card{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:16px;
+    margin-bottom:14px;
+  }
+  .card h2{
+    font-size:13px;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    color:var(--muted);
+    margin:0 0 12px;
+    font-weight:600;
+  }
+  label{
+    display:block;
+    font-size:13px;
+    color:var(--muted);
+    margin:12px 0 6px;
+  }
+  label:first-child{margin-top:0;}
+  input[type=number],input[type=date],input[type=text]{
+    width:100%;
+    background:var(--card-2);
+    border:1px solid var(--border);
+    color:var(--text);
+    padding:12px 14px;
+    border-radius:10px;
+    font-size:16px;
+    outline:none;
+  }
+  input:focus{border-color:var(--accent);}
+  .btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:6px;
+    background:var(--accent);
+    color:#04150c;
+    border:none;
+    padding:13px 18px;
+    border-radius:10px;
+    font-size:15px;
+    font-weight:700;
+    cursor:pointer;
+    width:100%;
+    margin-top:14px;
+  }
+  .btn.secondary{
+    background:transparent;
+    color:var(--text);
+    border:1px solid var(--border);
+    font-weight:600;
+  }
+  .btn.danger{
+    background:transparent;
+    color:var(--bad);
+    border:1px solid #4a2b29;
+  }
+  .exercise-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:8px;
+    margin-top:6px;
+  }
+  .ex-btn{
+    background:var(--card-2);
+    border:1px solid var(--border);
+    color:var(--text);
+    padding:12px 8px;
+    border-radius:10px;
+    font-size:13px;
+    line-height:1.3;
+    text-align:center;
+    cursor:pointer;
+  }
+  .ex-btn small{display:block;color:var(--muted);font-size:11px;margin-top:2px;}
+  .ex-btn.selected{
+    background:rgba(34,193,123,.15);
+    border-color:var(--accent);
+    color:var(--accent);
+  }
+  .ex-btn.selected small{color:var(--accent);}
+
+  .stat-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px;
+  }
+  .stat{
+    background:var(--card-2);
+    border-radius:10px;
+    padding:12px;
+  }
+  .stat .v{font-size:22px;font-weight:700;}
+  .stat .l{font-size:11.5px;color:var(--muted);margin-top:2px;}
+  .stat .u{font-size:12px;color:var(--muted);font-weight:400;}
+
+  .hero{
+    text-align:center;
+    padding:6px 0 4px;
+  }
+  .hero .big{font-size:44px;font-weight:800;color:var(--accent);}
+  .hero .cap{font-size:13px;color:var(--muted);margin-top:2px;}
+
+  .pill{
+    display:inline-block;
+    padding:3px 10px;
+    border-radius:999px;
+    font-size:11.5px;
+    font-weight:700;
+  }
+  .pill.healthy{background:rgba(34,193,123,.18);color:var(--accent);}
+  .pill.over{background:rgba(224,167,66,.18);color:var(--warn);}
+  .pill.obese{background:rgba(224,98,92,.18);color:var(--bad);}
+  .pill.under{background:rgba(90,150,220,.18);color:#6fa8e0;}
+
+  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  th{
+    text-align:left;
+    color:var(--muted);
+    font-weight:600;
+    font-size:11.5px;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    padding:0 6px 8px;
+  }
+  td{padding:9px 6px;border-top:1px solid var(--border);}
+  td.num{font-variant-numeric:tabular-nums;}
+  .change-up{color:var(--bad);}
+  .change-down{color:var(--accent);}
+  .row-del{color:var(--muted);text-align:right;cursor:pointer;font-size:16px;}
+
+  .empty{
+    text-align:center;
+    color:var(--muted);
+    font-size:13.5px;
+    padding:26px 10px;
+  }
+
+  nav{
+    position:fixed;
+    bottom:0;left:0;right:0;
+    background:rgba(15,21,18,.92);
+    backdrop-filter:blur(10px);
+    border-top:1px solid var(--border);
+    display:flex;
+    padding-bottom:env(safe-area-inset-bottom);
+    z-index:10;
+  }
+  nav button{
+    flex:1;
+    background:none;
+    border:none;
+    color:var(--muted);
+    padding:12px 4px 10px;
+    font-size:11.5px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:4px;
+    cursor:pointer;
+  }
+  nav button svg{width:22px;height:22px;}
+  nav button.active{color:var(--accent);}
+
+  .toast{
+    position:fixed;
+    bottom:76px;left:50%;
+    transform:translateX(-50%) translateY(20px);
+    background:var(--accent);
+    color:#04150c;
+    padding:10px 18px;
+    border-radius:10px;
+    font-size:13.5px;
+    font-weight:700;
+    opacity:0;
+    pointer-events:none;
+    transition:all .25s ease;
+    z-index:20;
+    white-space:nowrap;
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  svg.chart{width:100%;height:auto;display:block;}
+  .chart-legend{display:flex;gap:16px;font-size:11.5px;color:var(--muted);margin-top:8px;flex-wrap:wrap;}
+  .chart-legend span{display:inline-flex;align-items:center;gap:5px;}
+  .chart-legend i{width:10px;height:10px;border-radius:2px;display:inline-block;}
+
+  .subtext{font-size:12.5px;color:var(--muted);margin-top:6px;line-height:1.5;}
+  .divider{height:1px;background:var(--border);margin:14px 0;}
+  .goal-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;font-size:14px;}
+  .goal-row .l{color:var(--muted);}
+  .goal-row .v{font-weight:700;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Quick Calorie</h1>
+  <div class="date" id="headerDate"></div>
+</header>
+
+<main>
+
+  <!-- TODAY VIEW -->
+  <section class="view" id="view-today">
+
+    <div class="card" id="onboardingCard" style="display:none;">
+      <h2>Get started</h2>
+      <p class="subtext">Add your date of birth, height and exercise level in Settings first — everything else is calculated from those.</p>
+      <button class="btn" onclick="goTo('settings')">Go to Settings</button>
+    </div>
+
+    <div class="card" id="entryCard">
+      <h2 id="entryCardTitle">Log today</h2>
+      <label for="inWeight">Weight (kg)</label>
+      <input type="number" id="inWeight" inputmode="decimal" step="0.1" placeholder="e.g. 108.0">
+      <label for="inFat">Body fat %  <span style="color:var(--muted);font-weight:400;">(optional)</span></label>
+      <input type="number" id="inFat" inputmode="decimal" step="0.1" placeholder="e.g. 24.5">
+      <button class="btn" onclick="saveEntry()">Save entry</button>
+    </div>
+
+    <div class="card" id="resultsCard" style="display:none;">
+      <h2>Today's numbers</h2>
+      <div class="hero">
+        <div class="big" id="rDailyCal">–</div>
+        <div class="cap">calories / day target</div>
+      </div>
+      <div class="divider"></div>
+      <div class="stat-grid">
+        <div class="stat"><div class="v" id="rBMR">–</div><div class="l">BMR</div></div>
+        <div class="stat"><div class="v" id="rMaintain">–</div><div class="l">Maintenance (TDEE)</div></div>
+        <div class="stat"><div class="v" id="rProtein">–</div><div class="l">Protein target</div></div>
+        <div class="stat"><div class="v" id="rAge">–</div><div class="l">Age used</div></div>
+      </div>
+    </div>
+
+    <div class="card" id="bmiCard" style="display:none;">
+      <h2>BMI</h2>
+      <div class="stat-grid">
+        <div class="stat">
+          <div class="v" id="rBMI">–</div>
+          <div class="l">Body Mass Index</div>
+        </div>
+        <div class="stat">
+          <div class="v"><span class="pill" id="rBMIPill">–</span></div>
+          <div class="l">Category</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="goalCard" style="display:none;">
+      <h2>Goal progress</h2>
+      <div class="goal-row"><span class="l">Starting weight</span><span class="v" id="gStart">–</span></div>
+      <div class="goal-row"><span class="l">Current weight</span><span class="v" id="gCurrent">–</span></div>
+      <div class="goal-row"><span class="l">Goal weight</span><span class="v" id="gGoal">–</span></div>
+      <div class="divider"></div>
+      <div class="goal-row"><span class="l">Lost so far</span><span class="v" id="gLost">–</span></div>
+      <div class="goal-row"><span class="l">Left to lose</span><span class="v" id="gLeft">–</span></div>
+      <div class="goal-row"><span class="l">Avg daily change</span><span class="v" id="gDailyChange">–</span></div>
+      <div class="goal-row"><span class="l">Avg weekly change</span><span class="v" id="gWeeklyChange">–</span></div>
+      <div class="divider"></div>
+      <p class="subtext" id="gPrediction"></p>
+    </div>
+
+  </section>
+
+  <!-- HISTORY VIEW -->
+  <section class="view" id="view-history">
+    <div class="card" id="chartCard" style="display:none;">
+      <h2>Weight trend</h2>
+      <div id="chartWrap"></div>
+      <div class="chart-legend">
+        <span><i style="background:var(--accent)"></i>Actual</span>
+        <span><i style="background:var(--warn)"></i>Predicted trend</span>
+        <span><i style="background:var(--muted)"></i>Goal</span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Log</h2>
+      <div id="historyTableWrap">
+        <div class="empty">No entries yet. Add one from the Today tab.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SETTINGS VIEW -->
+  <section class="view" id="view-settings">
+    <div class="card">
+      <h2>About you</h2>
+      <label for="inDob">Date of birth</label>
+      <input type="date" id="inDob">
+      <label for="inHeight">Height (cm)</label>
+      <input type="number" id="inHeight" inputmode="decimal" step="0.1" placeholder="e.g. 181">
+      <label for="inGoal">Goal weight (kg)  <span style="color:var(--muted);font-weight:400;">(optional)</span></label>
+      <input type="number" id="inGoal" inputmode="decimal" step="0.1" placeholder="e.g. 91">
+    </div>
+
+    <div class="card">
+      <h2>Current exercise level</h2>
+      <div class="exercise-grid" id="exerciseGrid"></div>
+    </div>
+
+    <button class="btn" onclick="saveSettings()">Save settings</button>
+
+    <div class="card" style="margin-top:22px;">
+      <h2>Data</h2>
+      <p class="subtext">Everything is stored only on this device. No account, no cloud sync.</p>
+      <button class="btn secondary" onclick="exportData()">Export backup (.json)</button>
+      <button class="btn danger" onclick="clearAllData()">Erase all data</button>
+    </div>
+  </section>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<nav>
+  <button id="nav-today" class="active" onclick="goTo('today')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 2v10l7 3"/></svg>
+    Today
+  </button>
+  <button id="nav-history" onclick="goTo('history')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>
+    History
+  </button>
+  <button id="nav-settings" onclick="goTo('settings')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    Settings
+  </button>
+</nav>
+
+<script>
+/* ---------------------------------------------------------------
+   QUICK CALORIE — data model & calculations
+   All formulas mirror the "Calories Calc.xlsx" spreadsheet:
+     BMR        = Mifflin-St Jeor: 10*kg + 6.25*cm - 5*age + 5
+     TDEE       = BMR * activity multiplier
+     Daily Cal  = round(TDEE * 0.85 to nearest 10)   (15% deficit)
+     Protein    = kg * 1.6
+     BMI        = kg / (cm*cm) * 10000
+   Weekly change here is a trailing 7-day figure (the spreadsheet's
+   own SUM(E:E+6) was forward-looking due to how the fill-down
+   direction landed, which isn't meaningful as "weekly change" —
+   trailing is used instead).
+------------------------------------------------------------------ */
+
+const STORAGE_KEY = 'quickCalorieData_v1';
+
+const EXERCISE_LEVELS = [
+  { key:'little',  label:'Little to no Exercise', mult:1.2   },
+  { key:'light',    label:'Light Exercise',         mult:1.375 },
+  { key:'moderate', label:'Moderate Exercise',      mult:1.55  },
+  { key:'veryActive', label:'Very Active',          mult:1.725 },
+  { key:'extraActive', label:'Extra Active',        mult:1.9   },
+];
+
+function loadData(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw) return JSON.parse(raw);
+  }catch(e){}
+  return { settings:{ dob:null, heightCm:null, activityKey:'little', goalWeightKg:null }, entries:[] };
+}
+function saveData(d){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(d));
+}
+let DATA = loadData();
+
+function todayStr(){
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function fmtDateHuman(iso){
+  const d = new Date(iso+'T00:00:00');
+  return d.toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'});
+}
+function ageYearsOn(dobIso, onIso){
+  const dob = new Date(dobIso+'T00:00:00');
+  const on = new Date(onIso+'T00:00:00');
+  const days = (on - dob) / 86400000;
+  return days / 365.25;
+}
+function mround10(x){ return Math.round(x/10)*10; }
+
+function calcForEntry(entry, settings){
+  const age = ageYearsOn(settings.dob, entry.date);
+  const heightCm = settings.heightCm;
+  const bmr = 10*entry.weightKg + 6.25*heightCm - 5*age + 5;
+  const mult = EXERCISE_LEVELS.find(e=>e.key===settings.activityKey)?.mult || 1.2;
+  const maintain = bmr * mult;
+  const dailyCal = mround10(maintain * 0.85);
+  const protein = entry.weightKg * 1.6;
+  const bmi = entry.weightKg / (heightCm*heightCm) * 10000;
+  return { age, bmr, maintain, dailyCal, protein, bmi };
+}
+function bmiCategory(bmi){
+  if(bmi < 18.5) return {label:'Underweight', cls:'under'};
+  if(bmi < 25)   return {label:'Healthy', cls:'healthy'};
+  if(bmi < 30)   return {label:'Overweight', cls:'over'};
+  if(bmi < 40)   return {label:'Obese', cls:'obese'};
+  return {label:'Severely Obese', cls:'obese'};
+}
+function kgToStoneLb(kg){
+  const lb = kg * 2.204623;
+  const stone = Math.floor(lb/14);
+  const remLb = lb - stone*14;
+  return `${stone}st ${remLb.toFixed(1)}lb`;
+}
+function sortedEntries(){
+  return [...DATA.entries].sort((a,b)=> a.date.localeCompare(b.date));
+}
+
+function settingsComplete(){
+  const s = DATA.settings;
+  return !!(s.dob && s.heightCm);
+}
+
+/* ---------------- rendering ---------------- */
+
+function render(){
+  document.getElementById('headerDate').textContent = new Date().toLocaleDateString(undefined,{weekday:'long',day:'numeric',month:'long'});
+  renderSettingsView();
+  renderTodayView();
+  renderHistoryView();
+}
+
+function renderSettingsView(){
+  const s = DATA.settings;
+  document.getElementById('inDob').value = s.dob || '';
+  document.getElementById('inHeight').value = s.heightCm ?? '';
+  document.getElementById('inGoal').value = s.goalWeightKg ?? '';
+  const grid = document.getElementById('exerciseGrid');
+  grid.innerHTML = '';
+  EXERCISE_LEVELS.forEach(lvl=>{
+    const btn = document.createElement('div');
+    btn.className = 'ex-btn' + (s.activityKey===lvl.key ? ' selected' : '');
+    btn.innerHTML = `${lvl.label}<small>×${lvl.mult}</small>`;
+    btn.onclick = ()=>{
+      DATA.settings.activityKey = lvl.key;
+      renderSettingsView();
+    };
+    grid.appendChild(btn);
+  });
+}
+
+function renderTodayView(){
+  const complete = settingsComplete();
+  document.getElementById('onboardingCard').style.display = complete ? 'none' : 'block';
+  document.getElementById('entryCard').style.display = complete ? 'block' : 'none';
+
+  const entries = sortedEntries();
+  const today = todayStr();
+  const todaysEntry = entries.find(e=>e.date===today);
+  document.getElementById('entryCardTitle').textContent = todaysEntry ? "Update today's entry" : 'Log today';
+  document.getElementById('inWeight').value = todaysEntry ? todaysEntry.weightKg : '';
+  document.getElementById('inFat').value = (todaysEntry && todaysEntry.fatPct!=null) ? todaysEntry.fatPct : '';
+
+  const resultsCard = document.getElementById('resultsCard');
+  const bmiCard = document.getElementById('bmiCard');
+  const goalCard = document.getElementById('goalCard');
+
+  if(!complete || entries.length===0){
+    resultsCard.style.display='none';
+    bmiCard.style.display='none';
+    goalCard.style.display='none';
+    return;
+  }
+
+  const latest = entries[entries.length-1];
+  const calc = calcForEntry(latest, DATA.settings);
+
+  resultsCard.style.display='block';
+  document.getElementById('rDailyCal').textContent = calc.dailyCal.toLocaleString() + ' kcal';
+  document.getElementById('rBMR').textContent = Math.round(calc.bmr).toLocaleString();
+  document.getElementById('rMaintain').textContent = Math.round(calc.maintain).toLocaleString();
+  document.getElementById('rProtein').textContent = Math.round(calc.protein) + 'g';
+  document.getElementById('rAge').textContent = calc.age.toFixed(1) + ' yrs';
+
+  bmiCard.style.display='block';
+  document.getElementById('rBMI').textContent = calc.bmi.toFixed(1);
+  const cat = bmiCategory(calc.bmi);
+  const pill = document.getElementById('rBMIPill');
+  pill.textContent = cat.label;
+  pill.className = 'pill ' + cat.cls;
+
+  // Goal card
+  if(DATA.settings.goalWeightKg){
+    goalCard.style.display='block';
+    const start = entries[0];
+    const goal = DATA.settings.goalWeightKg;
+    const lost = start.weightKg - latest.weightKg;
+    const left = latest.weightKg - goal;
+
+    document.getElementById('gStart').textContent = start.weightKg.toFixed(1)+' kg';
+    document.getElementById('gCurrent').textContent = latest.weightKg.toFixed(1)+' kg  ('+kgToStoneLb(latest.weightKg)+')';
+    document.getElementById('gGoal').textContent = goal.toFixed(1)+' kg  ('+kgToStoneLb(goal)+')';
+    document.getElementById('gLost').textContent = (lost>=0?'':'+') + Math.abs(lost).toFixed(1) + ' kg' + (lost>=0?' lost':' gained');
+    document.getElementById('gLeft').textContent = left>0 ? left.toFixed(1)+' kg to go' : 'Goal reached 🎉';
+
+    const trend = computeTrend(entries);
+    document.getElementById('gDailyChange').textContent = trend.avgDaily==null ? '–' : (trend.avgDaily>=0?'+':'') + trend.avgDaily.toFixed(3) + ' kg/day';
+    document.getElementById('gWeeklyChange').textContent = trend.avgWeekly==null ? '–' : (trend.avgWeekly>=0?'+':'') + trend.avgWeekly.toFixed(2) + ' kg/week';
+
+    const predEl = document.getElementById('gPrediction');
+    if(trend.avgDaily != null && trend.avgDaily < -0.001 && left > 0){
+      const daysToGoal = Math.ceil(left / (-trend.avgDaily));
+      const goalDate = new Date(); goalDate.setDate(goalDate.getDate()+daysToGoal);
+      predEl.textContent = `At your average rate of loss, you're projected to reach your goal around ${goalDate.toLocaleDateString(undefined,{day:'numeric',month:'long',year:'numeric'})} (~${daysToGoal} days).`;
+    } else if(left <= 0){
+      predEl.textContent = `You've reached or passed your goal weight.`;
+    } else if(entries.length < 2){
+      predEl.textContent = `Log a few more days to see a projected goal date.`;
+    } else {
+      predEl.textContent = `Your average trend isn't currently moving toward your goal.`;
+    }
+  } else {
+    goalCard.style.display='none';
+  }
+}
+
+function computeTrend(entries){
+  if(entries.length < 2) return {avgDaily:null, avgWeekly:null};
+  const first = entries[0], last = entries[entries.length-1];
+  const days = (new Date(last.date+'T00:00:00') - new Date(first.date+'T00:00:00'))/86400000;
+  if(days <= 0) return {avgDaily:null, avgWeekly:null};
+  const avgDaily = (last.weightKg - first.weightKg) / days;
+  return { avgDaily, avgWeekly: avgDaily*7 };
+}
+
+function renderHistoryView(){
+  const entries = sortedEntries();
+  const chartCard = document.getElementById('chartCard');
+  const wrap = document.getElementById('historyTableWrap');
+
+  if(entries.length===0){
+    chartCard.style.display='none';
+    wrap.innerHTML = '<div class="empty">No entries yet. Add one from the Today tab.</div>';
+    return;
+  }
+
+  // chart
+  chartCard.style.display = entries.length>=2 ? 'block' : 'none';
+  if(entries.length>=2){
+    document.getElementById('chartWrap').innerHTML = buildChartSVG(entries);
+  }
+
+  // table, most recent first
+  const rows = [...entries].reverse().map((e,idx)=>{
+    const realIdx = entries.length-1-idx;
+    const prev = entries[realIdx-1];
+    const change = prev ? (e.weightKg - prev.weightKg) : null;
+    const changeHtml = change==null ? '–' :
+      `<span class="${change>0?'change-up':(change<0?'change-down':'')}">${change>=0?'+':''}${change.toFixed(1)}</span>`;
+    const calc = settingsComplete() ? calcForEntry(e, DATA.settings) : null;
+    return `<tr>
+      <td>${fmtDateHuman(e.date)}</td>
+      <td class="num">${e.weightKg.toFixed(1)}</td>
+      <td class="num">${e.fatPct!=null ? e.fatPct.toFixed(1)+'%' : '–'}</td>
+      <td class="num">${calc ? calc.bmi.toFixed(1) : '–'}</td>
+      <td class="num">${changeHtml}</td>
+      <td class="row-del" onclick="deleteEntry('${e.date}')">✕</td>
+    </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `<table>
+    <thead><tr><th>Date</th><th>Kg</th><th>Fat%</th><th>BMI</th><th>Δ</th><th></th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function buildChartSVG(entries){
+  const W = 480, H = 220, padL = 34, padR = 10, padT = 14, padB = 24;
+  const weights = entries.map(e=>e.weightKg);
+  const goal = DATA.settings.goalWeightKg;
+  let minW = Math.min(...weights);
+  let maxW = Math.max(...weights);
+  if(goal){ minW = Math.min(minW, goal); maxW = Math.max(maxW, goal); }
+  const trend = computeTrend(entries);
+
+  // predicted trend line extension (30 days forward) if we have a rate
+  let predPoints = [];
+  if(trend.avgDaily != null){
+    const last = entries[entries.length-1];
+    const lastDate = new Date(last.date+'T00:00:00');
+    for(let d=0; d<=30; d+=5){
+      const w = last.weightKg + trend.avgDaily*d;
+      predPoints.push(w);
+      minW = Math.min(minW, w); maxW = Math.max(maxW, w);
+    }
+  }
+
+  const span = (maxW - minW) || 1;
+  minW -= span*0.08; maxW += span*0.08;
+
+  const n = entries.length;
+  const xAt = i => padL + (W-padL-padR) * (i/(n-1||1));
+  const yAt = w => padT + (H-padT-padB) * (1 - (w-minW)/(maxW-minW));
+
+  const actualPath = entries.map((e,i)=> `${i===0?'M':'L'} ${xAt(i).toFixed(1)} ${yAt(e.weightKg).toFixed(1)}`).join(' ');
+
+  let predPath = '';
+  if(predPoints.length){
+    const totalSteps = predPoints.length-1;
+    const lastX = xAt(n-1);
+    const extra = (W-padR-lastX);
+    predPath = predPoints.map((w,i)=>{
+      const x = lastX + extra*(i/totalSteps);
+      return `${i===0?'M':'L'} ${x.toFixed(1)} ${yAt(w).toFixed(1)}`;
+    }).join(' ');
+  }
+
+  let goalLine = '';
+  if(goal){
+    const gy = yAt(goal).toFixed(1);
+    goalLine = `<line x1="${padL}" y1="${gy}" x2="${W-padR}" y2="${gy}" stroke="var(--muted)" stroke-dasharray="4 4" stroke-width="1.5"/>`;
+  }
+
+  const dots = entries.map((e,i)=>`<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(e.weightKg).toFixed(1)}" r="3" fill="var(--accent)"/>`).join('');
+
+  const yTop = maxW.toFixed(0), yBot = minW.toFixed(0);
+
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+    <text x="2" y="${padT+6}" font-size="10" fill="var(--muted)">${yTop}</text>
+    <text x="2" y="${H-padB+4}" font-size="10" fill="var(--muted)">${yBot}</text>
+    ${goalLine}
+    <path d="${actualPath}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+    ${predPath ? `<path d="${predPath}" fill="none" stroke="var(--warn)" stroke-width="2" stroke-dasharray="3 3"/>` : ''}
+    ${dots}
+  </svg>`;
+}
+
+/* ---------------- actions ---------------- */
+
+function goTo(view){
+  ['today','history','settings'].forEach(v=>{
+    document.getElementById('view-'+v).classList.toggle('active', v===view);
+    document.getElementById('nav-'+v).classList.toggle('active', v===view);
+  });
+  if(view==='history') renderHistoryView();
+  window.scrollTo(0,0);
+}
+
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(()=>t.classList.remove('show'), 1800);
+}
+
+function saveSettings(){
+  const dob = document.getElementById('inDob').value;
+  const height = parseFloat(document.getElementById('inHeight').value);
+  const goal = parseFloat(document.getElementById('inGoal').value);
+  if(!dob){ showToast('Please enter your date of birth'); return; }
+  if(!height || height<=0){ showToast('Please enter a valid height'); return; }
+  DATA.settings.dob = dob;
+  DATA.settings.heightCm = height;
+  DATA.settings.goalWeightKg = isNaN(goal) ? null : goal;
+  saveData(DATA);
+  showToast('Settings saved');
+  render();
+  if(document.getElementById('view-today').classList.contains('active') === false &&
+     document.getElementById('onboardingCard').style.display !== 'none'){
+    // stay
+  }
+  goTo('today');
+}
+
+function saveEntry(){
+  if(!settingsComplete()){ showToast('Finish Settings first'); goTo('settings'); return; }
+  const weight = parseFloat(document.getElementById('inWeight').value);
+  const fatRaw = document.getElementById('inFat').value;
+  const fat = fatRaw==='' ? null : parseFloat(fatRaw);
+  if(!weight || weight<=0){ showToast('Enter a valid weight'); return; }
+  const date = todayStr();
+  const existingIdx = DATA.entries.findIndex(e=>e.date===date);
+  const entry = { date, weightKg: weight, fatPct: fat };
+  if(existingIdx>=0) DATA.entries[existingIdx] = entry;
+  else DATA.entries.push(entry);
+  saveData(DATA);
+  showToast('Entry saved');
+  render();
+}
+
+function deleteEntry(date){
+  DATA.entries = DATA.entries.filter(e=>e.date!==date);
+  saveData(DATA);
+  render();
+}
+
+function exportData(){
+  const blob = new Blob([JSON.stringify(DATA,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'quick-calorie-backup-'+todayStr()+'.json';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function clearAllData(){
+  if(confirm('This erases every entry and setting on this device. Continue?')){
+    DATA = { settings:{ dob:null, heightCm:null, activityKey:'little', goalWeightKg:null }, entries:[] };
+    saveData(DATA);
+    render();
+    goTo('settings');
+    showToast('All data erased');
+  }
+}
+
+/* ---------------- init ---------------- */
+render();
+if(!settingsComplete()) goTo('settings');
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  });
+}
+</script>
+</body>
+</html>
