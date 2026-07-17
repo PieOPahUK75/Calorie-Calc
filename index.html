@@ -94,6 +94,7 @@
     outline:none;
   }
   input:focus{border-color:var(--accent);}
+  input[type=range]{accent-color:var(--accent);padding:0;background:none;border:none;}
   .btn{
     display:inline-flex;
     align-items:center;
@@ -282,7 +283,7 @@
 <main>
 
   <!-- TODAY VIEW -->
-  <section class="view" id="view-today">
+  <section class="view active" id="view-today">
 
     <div class="card" id="onboardingCard" style="display:none;">
       <h2>Get started</h2>
@@ -303,7 +304,7 @@
       <h2>Today's numbers</h2>
       <div class="hero">
         <div class="big" id="rDailyCal">–</div>
-        <div class="cap">calories / day target</div>
+        <div class="cap" id="rDailyCalCap">calories / day target</div>
       </div>
       <div class="divider"></div>
       <div class="stat-grid">
@@ -382,6 +383,20 @@
       <div class="exercise-grid" id="exerciseGrid"></div>
     </div>
 
+    <div class="card">
+      <h2>Weekly weight-loss target</h2>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;">
+        <span style="font-size:26px;font-weight:800;" id="weeklyLossValue">–</span>
+        <span class="pill" id="weeklyLossPill">–</span>
+      </div>
+      <input type="range" id="inWeeklyLoss" min="0" max="1.5" step="0.05" style="width:100%;margin-top:10px;">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:2px;">
+        <span>0 kg</span><span>1.5 kg</span>
+      </div>
+      <p class="subtext" id="weeklyLossInfo"></p>
+      <div id="weeklyLossWarning" style="display:none;background:rgba(224,98,92,.12);border:1px solid #4a2b29;color:var(--bad);padding:10px 12px;border-radius:10px;font-size:12.5px;margin-top:10px;line-height:1.5;"></div>
+    </div>
+
     <button class="btn" onclick="saveSettings()">Save settings</button>
 
     <div class="card" style="margin-top:22px;">
@@ -436,12 +451,29 @@ const EXERCISE_LEVELS = [
   { key:'extraActive', label:'Extra Active',        mult:1.9   },
 ];
 
+const KCAL_PER_KG_FAT = 7700;      // standard approximation used to convert a weight-change rate to a calorie deficit
+const CALORIE_FLOOR = 1200;        // daily calorie target never drops below this, regardless of the slider
+const DEFAULT_WEEKLY_LOSS_KG = 0.5;
+const AGGRESSIVE_LOSS_THRESHOLD_KG = 1.0; // above this, show the "not recommended without medical supervision" warning
+
+function weeklyLossCategory(kg){
+  if(kg <= 0.5) return {label:'Conservative', cls:'healthy'};
+  if(kg <= AGGRESSIVE_LOSS_THRESHOLD_KG) return {label:'Moderate', cls:'over'};
+  return {label:'Aggressive', cls:'obese'};
+}
+
 function loadData(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
-    if(raw) return JSON.parse(raw);
+    if(raw){
+      const data = JSON.parse(raw);
+      if(data.settings && data.settings.weeklyLossKg == null){
+        data.settings.weeklyLossKg = DEFAULT_WEEKLY_LOSS_KG; // migrate older saves
+      }
+      return data;
+    }
   }catch(e){}
-  return { settings:{ dob:null, heightCm:null, activityKey:'little', goalWeightKg:null }, entries:[] };
+  return { settings:{ dob:null, heightCm:null, activityKey:'little', goalWeightKg:null, weeklyLossKg:DEFAULT_WEEKLY_LOSS_KG }, entries:[] };
 }
 function saveData(d){
   localStorage.setItem(STORAGE_KEY, JSON.stringify(d));
@@ -484,12 +516,22 @@ function calcForEntry(entry, settings){
   const age = ageYearsOn(settings.dob, entry.date);
   const heightCm = settings.heightCm;
   const bmr = 10*entry.weightKg + 6.25*heightCm - 5*age + 5;
-  const mult = EXERCISE_LEVELS.find(e=>e.key===settings.activityKey)?.mult || 1.2;
+  // Use the activity level and weekly-loss target that were in effect when this entry
+  // was saved (entry.activityKey / entry.weeklyLossKg), falling back to current global
+  // settings only for older entries saved before these were tracked per-entry. This is
+  // what makes changing a setting today affect only today/future entries, never the past.
+  const activityKey = entry.activityKey || settings.activityKey;
+  const mult = EXERCISE_LEVELS.find(e=>e.key===activityKey)?.mult || 1.2;
   const maintain = bmr * mult;
-  const dailyCal = mround10(maintain * 0.85);
+  const weeklyLossKg = entry.weeklyLossKg != null ? entry.weeklyLossKg : (settings.weeklyLossKg ?? DEFAULT_WEEKLY_LOSS_KG);
+  const deficitKcal = weeklyLossKg * KCAL_PER_KG_FAT / 7;
+  const rawTarget = maintain - deficitKcal;
+  const floorApplied = rawTarget < CALORIE_FLOOR;
+  const dailyCal = mround10(Math.max(rawTarget, CALORIE_FLOOR));
+  const deficitPercent = maintain>0 ? ((maintain-dailyCal)/maintain*100) : 0;
   const protein = entry.weightKg * 1.6;
   const bmi = entry.weightKg / (heightCm*heightCm) * 10000;
-  return { age, bmr, maintain, dailyCal, protein, bmi };
+  return { age, bmr, maintain, dailyCal, protein, bmi, weeklyLossKg, deficitKcal, deficitPercent, floorApplied };
 }
 function bmiCategory(bmi){
   if(bmi < 18.5) return {label:'Underweight', cls:'under'};
@@ -539,6 +581,53 @@ function renderSettingsView(){
     };
     grid.appendChild(btn);
   });
+
+  const lossInput = document.getElementById('inWeeklyLoss');
+  lossInput.value = s.weeklyLossKg ?? DEFAULT_WEEKLY_LOSS_KG;
+  lossInput.oninput = ()=>{
+    DATA.settings.weeklyLossKg = parseFloat(lossInput.value);
+    updateWeeklyLossDisplay();
+  };
+  updateWeeklyLossDisplay();
+}
+
+function updateWeeklyLossDisplay(){
+  const kg = parseFloat(document.getElementById('inWeeklyLoss').value);
+  document.getElementById('weeklyLossValue').textContent = kg.toFixed(2) + ' kg/wk';
+
+  const cat = weeklyLossCategory(kg);
+  const pill = document.getElementById('weeklyLossPill');
+  pill.textContent = cat.label;
+  pill.className = 'pill ' + cat.cls;
+
+  const deficitKcal = kg * KCAL_PER_KG_FAT / 7;
+  let infoText = `≈ ${Math.round(deficitKcal).toLocaleString()} kcal/day deficit`;
+
+  const entries = sortedEntries();
+  const s = DATA.settings;
+  if(entries.length && s.dob && s.heightCm){
+    const latest = entries[entries.length-1];
+    const age = ageYearsOn(s.dob, latest.date);
+    const bmr = 10*latest.weightKg + 6.25*s.heightCm - 5*age + 5;
+    const mult = EXERCISE_LEVELS.find(e=>e.key===s.activityKey)?.mult || 1.2;
+    const maintain = bmr * mult;
+    const pct = maintain>0 ? (deficitKcal/maintain*100) : 0;
+    infoText += ` (~${pct.toFixed(0)}% of your current maintenance calories)`;
+    if(maintain - deficitKcal < CALORIE_FLOOR){
+      infoText += ` — would be capped at the ${CALORIE_FLOOR.toLocaleString()} kcal safety floor`;
+    }
+  } else {
+    infoText += `. Finish your details above and log an entry to see this as a % of your maintenance calories.`;
+  }
+  document.getElementById('weeklyLossInfo').textContent = infoText;
+
+  const warnEl = document.getElementById('weeklyLossWarning');
+  if(kg > AGGRESSIVE_LOSS_THRESHOLD_KG){
+    warnEl.style.display = 'block';
+    warnEl.textContent = '⚠️ Losing more than 1kg per week is generally considered aggressive and isn\'t recommended without medical supervision — it significantly raises the risk of muscle loss, nutrient deficiencies, gallstones, and metabolic slowdown. Please check with a doctor before targeting a rate this high.';
+  } else {
+    warnEl.style.display = 'none';
+  }
 }
 
 function renderTodayView(){
@@ -569,6 +658,8 @@ function renderTodayView(){
 
   resultsCard.style.display='block';
   document.getElementById('rDailyCal').textContent = calc.dailyCal.toLocaleString() + ' kcal';
+  const capEl = document.getElementById('rDailyCalCap');
+  capEl.textContent = `calories / day target · ${calc.deficitPercent.toFixed(0)}% deficit` + (calc.floorApplied ? ' (capped at 1,200 kcal safety floor)' : '');
   document.getElementById('rBMR').textContent = Math.round(calc.bmr).toLocaleString();
   document.getElementById('rMaintain').textContent = Math.round(calc.maintain).toLocaleString();
   document.getElementById('rProtein').textContent = Math.round(calc.protein) + 'g';
@@ -711,13 +802,14 @@ function renderHistoryView(){
       <td class="num">${e.weightKg.toFixed(1)}</td>
       <td class="num">${e.fatPct!=null ? e.fatPct.toFixed(1)+'%' : '–'}</td>
       <td class="num">${calc ? calc.bmi.toFixed(1) : '–'}</td>
+      <td class="num">${calc ? calc.dailyCal.toLocaleString() : '–'}</td>
       <td class="num">${changeHtml}</td>
       <td class="row-del" onclick="deleteEntry('${e.date}')">✕</td>
     </tr>`;
   }).join('');
 
   wrap.innerHTML = `<table>
-    <thead><tr><th>Date</th><th>Kg</th><th>Fat%</th><th>BMI</th><th>Δ</th><th></th></tr></thead>
+    <thead><tr><th>Date</th><th>Kg</th><th>Fat%</th><th>BMI</th><th>Target</th><th>Δ</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
@@ -869,7 +961,13 @@ function saveEntry(){
   if(!weight || weight<=0){ showToast('Enter a valid weight'); return; }
   const date = todayStr();
   const existingIdx = DATA.entries.findIndex(e=>e.date===date);
-  const entry = { date, weightKg: weight, fatPct: fat };
+  const entry = {
+    date, weightKg: weight, fatPct: fat,
+    // snapshot today's settings so this entry's calorie target is locked in permanently,
+    // even if you change your exercise level or weekly-loss target later
+    activityKey: DATA.settings.activityKey,
+    weeklyLossKg: DATA.settings.weeklyLossKg
+  };
   if(existingIdx>=0) DATA.entries[existingIdx] = entry;
   else DATA.entries.push(entry);
   saveData(DATA);
@@ -897,7 +995,7 @@ function exportData(){
 
 function clearAllData(){
   if(confirm('This erases every entry and setting on this device. Continue?')){
-    DATA = { settings:{ dob:null, heightCm:null, activityKey:'little', goalWeightKg:null }, entries:[] };
+    DATA = { settings:{ dob:null, heightCm:null, activityKey:'little', goalWeightKg:null, weeklyLossKg:DEFAULT_WEEKLY_LOSS_KG }, entries:[] };
     saveData(DATA);
     render();
     goTo('settings');
@@ -907,7 +1005,7 @@ function clearAllData(){
 
 /* ---------------- init ---------------- */
 render();
-if(!settingsComplete()) goTo('settings');
+goTo(settingsComplete() ? 'today' : 'settings');
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
