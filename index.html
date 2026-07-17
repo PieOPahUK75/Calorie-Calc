@@ -475,8 +475,13 @@ const firebaseConfig = {
 let cloudSyncEnabled = false;
 let fbAuth = null, fbDb = null, fbUser = null, lastSyncedAt = null, cloudBusy = false;
 
+// Every field must be filled in, not just apiKey — a partially-pasted config
+// (e.g. real apiKey but authDomain still "PASTE_YOUR_PROJECT...") would
+// otherwise "enable" cloud sync while every actual sign-in attempt fails.
+const firebaseConfigReady = Object.values(firebaseConfig).every(v => v && !String(v).startsWith('PASTE_'));
+
 try{
-  if(typeof firebase !== 'undefined' && firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith('PASTE_')){
+  if(typeof firebase !== 'undefined' && firebaseConfigReady){
     firebase.initializeApp(firebaseConfig);
     fbAuth = firebase.auth();
     fbDb = firebase.firestore();
@@ -542,7 +547,13 @@ function signInWithGoogle(){
   const provider = new firebase.auth.GoogleAuthProvider();
   // Redirect (not popup): popups are unreliable inside an installed/standalone
   // PWA, which is how this app is meant to run on your phone.
-  fbAuth.signInWithRedirect(provider);
+  fbAuth.signInWithRedirect(provider).catch(err=>{
+    // This previously failed silently — now it's surfaced so the actual
+    // Firebase error code shows up (e.g. unauthorized-domain, or the
+    // environment-not-supported error some installed/standalone contexts hit).
+    showToast('Sign-in failed: ' + (err.message || err.code || 'unknown error'));
+    console.error('signInWithRedirect failed', err);
+  });
 }
 
 function signOutGoogle(){
