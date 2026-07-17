@@ -510,6 +510,12 @@ try{
   if(typeof firebase !== 'undefined' && firebaseConfigReady){
     firebase.initializeApp(firebaseConfig);
     fbAuth = firebase.auth();
+    // Should be the default, but some installed-PWA/WebView contexts don't
+    // reliably honor it — set it explicitly so a signed-in session actually
+    // survives closing and reopening the app, not just staying on one page.
+    fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(e=>{
+      console.warn('Could not set LOCAL auth persistence', e);
+    });
     fbDb = firebase.firestore();
     fbDb.enablePersistence({synchronizeTabs:true}).catch(()=>{});
     cloudSyncEnabled = true;
@@ -571,14 +577,21 @@ function pushToCloud(d){
 function signInWithGoogle(){
   if(!cloudSyncEnabled) return;
   const provider = new firebase.auth.GoogleAuthProvider();
-  // Redirect (not popup): popups are unreliable inside an installed/standalone
-  // PWA, which is how this app is meant to run on your phone.
-  fbAuth.signInWithRedirect(provider).catch(err=>{
-    // This previously failed silently — now it's surfaced so the actual
-    // Firebase error code shows up (e.g. unauthorized-domain, or the
-    // environment-not-supported error some installed/standalone contexts hit).
+  // Popup, not redirect: signInWithRedirect relies on a cross-origin iframe
+  // between this app's domain (GitHub Pages) and Firebase's authDomain
+  // (project.firebaseapp.com) to bridge the session back. Modern Chrome,
+  // Firefox and Safari all now block that third-party storage access by
+  // default, which silently breaks redirect sign-in for any app not hosted
+  // directly on Firebase Hosting — exactly this setup. Popup avoids the
+  // cross-origin bridge entirely (it talks back via postMessage instead),
+  // which is Firebase's own recommended fix for this situation.
+  fbAuth.signInWithPopup(provider).then(()=>{
+    showToast('Signed in — syncing…');
+    goTo('settings');
+  }).catch(err=>{
+    if(err && err.code === 'auth/popup-closed-by-user') return; // user just cancelled
     showToast('Sign-in failed: ' + (err.message || err.code || 'unknown error'));
-    console.error('signInWithRedirect failed', err);
+    console.error('signInWithPopup failed', err);
   });
 }
 
@@ -622,20 +635,8 @@ async function syncOnSignIn(){
 
 function initCloudAuth(){
   if(!cloudSyncEnabled) return;
-  fbAuth.getRedirectResult().then(result=>{
-    // This branch only runs right after coming back from the Google sign-in
-    // redirect. Previously nothing told you it worked — the app just reloaded
-    // straight to the Today tab and the confirmation was invisible on the
-    // Settings tab. Now: jump to Settings and say so explicitly.
-    if(result && result.user){
-      showToast('Signed in — syncing…');
-      goTo('settings');
-    }
-  }).catch(err=>{
-    showToast('Sign-in failed: ' + (err.message || err.code || 'unknown error'));
-    goTo('settings');
-  });
   fbAuth.onAuthStateChanged(user=>{
+    console.log('[QuickCalorie] auth state:', user ? `signed in (${user.email})` : 'signed out');
     fbUser = user;
     renderCloudSection();
     if(user) syncOnSignIn();
