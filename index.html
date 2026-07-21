@@ -7,8 +7,8 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Quick Calorie">
-<title>Quick Calorie</title>
+<meta name="apple-mobile-web-app-title" content="Daily Tracker">
+<title>Daily Tracker</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" href="icon-192.png">
@@ -44,10 +44,49 @@
   }
   header h1{
     font-size:19px;
-    margin:0;
+    margin:0 0 0 10px;
     font-weight:700;
     letter-spacing:.2px;
+    flex:1;
   }
+  .menu-btn{
+    background:none;
+    border:none;
+    color:var(--text);
+    padding:6px;
+    margin:-6px;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    flex-shrink:0;
+  }
+  .menu-btn svg{width:22px;height:22px;}
+  .tool-menu-overlay{
+    display:none;
+    position:fixed;inset:0;
+    background:rgba(0,0,0,.5);
+    z-index:30;
+  }
+  .tool-menu-overlay.show{display:block;}
+  .tool-menu-panel{
+    position:absolute;top:0;left:0;bottom:0;
+    width:78%;max-width:300px;
+    background:var(--card);
+    border-right:1px solid var(--border);
+    padding:60px 18px 18px;
+    animation:slideIn .18s ease;
+    overflow-y:auto;
+  }
+  @keyframes slideIn{from{transform:translateX(-100%);}to{transform:translateX(0);}}
+  .tool-item{
+    display:flex;align-items:center;gap:12px;
+    padding:14px 12px;border-radius:10px;
+    cursor:pointer;margin-bottom:6px;
+    color:var(--text);
+  }
+  .tool-item.active{background:rgba(34,193,123,.15);color:var(--accent);}
+  .tool-item svg{width:20px;height:20px;flex-shrink:0;}
+  .tool-panel{display:block;}
   header .date{
     font-size:12px;
     color:var(--muted);
@@ -299,17 +338,29 @@
 <body>
 
 <header>
-  <h1>Quick Calorie</h1>
+  <button class="menu-btn" onclick="openToolMenu()" aria-label="Switch tool">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+  </button>
+  <h1>Daily Tracker</h1>
   <div style="text-align:right;">
     <div class="date" id="headerDate"></div>
     <div class="cloud-badge" id="cloudBadge"></div>
   </div>
 </header>
 
+<div class="tool-menu-overlay" id="toolMenuOverlay" onclick="closeToolMenu()">
+  <div class="tool-menu-panel" onclick="event.stopPropagation()">
+    <h2 style="margin:0 0 14px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Tools</h2>
+    <div id="toolMenuList"></div>
+  </div>
+</div>
+
 <main>
 
   <!-- TODAY VIEW -->
   <section class="view active" id="view-today">
+
+  <div class="tool-panel" data-tool="calorie">
 
     <div class="card" id="onboardingCard" style="display:none;">
       <h2>Get started</h2>
@@ -369,10 +420,40 @@
       <p class="subtext" id="gPrediction"></p>
     </div>
 
+  </div>
+
+  <div class="tool-panel" data-tool="pressups" style="display:none;">
+
+    <div class="card">
+      <h2>Log a set</h2>
+      <label for="inReps">Reps</label>
+      <input type="number" id="inReps" inputmode="numeric" step="1" placeholder="e.g. 8">
+      <button class="btn" onclick="addPressUpSet()">Add set</button>
+    </div>
+
+    <div class="card">
+      <h2>Today</h2>
+      <div class="hero">
+        <div class="big" id="puTodayTotal">0</div>
+        <div class="cap">press-ups today</div>
+      </div>
+      <div class="divider"></div>
+      <div id="puTodaySets"></div>
+    </div>
+
+    <div class="card" id="puProgressCard" style="display:none;">
+      <h2>Progress to target</h2>
+      <div id="puProgressBody"></div>
+    </div>
+
+  </div>
+
   </section>
 
   <!-- HISTORY VIEW -->
   <section class="view" id="view-history">
+
+  <div class="tool-panel" data-tool="calorie">
     <div class="card" id="chartCard" style="display:none;">
       <h2>Weight trend</h2>
       <div class="range-row" id="rangeRow"></div>
@@ -390,10 +471,33 @@
         <div class="empty">No entries yet. Add one from the Today tab.</div>
       </div>
     </div>
+  </div>
+
+  <div class="tool-panel" data-tool="pressups" style="display:none;">
+    <div class="card" id="puChartCard" style="display:none;">
+      <h2>Press-up trend</h2>
+      <div class="range-row" id="puRangeRow"></div>
+      <div id="puChartWrap"></div>
+      <div class="chart-legend">
+        <span><i style="background:var(--accent)"></i><span id="puLegendActual">Daily total</span></span>
+        <span><i style="background:var(--muted)"></i>Target</span>
+      </div>
+      <p class="subtext" id="puRangeStat"></p>
+    </div>
+    <div class="card">
+      <h2>Log</h2>
+      <div id="puHistoryTableWrap">
+        <div class="empty">No sets logged yet.</div>
+      </div>
+    </div>
+  </div>
+
   </section>
 
   <!-- SETTINGS VIEW -->
   <section class="view" id="view-settings">
+
+  <div class="tool-panel" data-tool="calorie">
     <div class="card">
       <h2>About you</h2>
       <label for="inDob">Date of birth</label>
@@ -424,8 +528,26 @@
     </div>
 
     <button class="btn" onclick="saveSettings()">Save settings</button>
+  </div>
 
-    <div class="card" style="margin-top:22px;" id="cloudCard">
+  <div class="tool-panel" data-tool="pressups" style="display:none;">
+    <div class="card">
+      <h2>Target</h2>
+      <label>Target type</label>
+      <div class="exercise-grid">
+        <div class="ex-btn" id="puTypeSingle">Single-day total</div>
+        <div class="ex-btn" id="puTypeCumulative">Cumulative all-time total</div>
+      </div>
+      <label for="puTargetNumber">Target reps</label>
+      <input type="number" id="puTargetNumber" inputmode="numeric" step="1" placeholder="e.g. 50">
+      <label for="puTargetDays">Days to achieve it</label>
+      <input type="number" id="puTargetDays" inputmode="numeric" step="1" placeholder="e.g. 90">
+      <p class="subtext" id="puTargetDateInfo"></p>
+    </div>
+    <button class="btn" onclick="savePressUpSettings()">Save settings</button>
+  </div>
+
+  <div class="card" style="margin-top:22px;" id="cloudCard">
       <h2>Cloud sync</h2>
       <div id="cloudSection"></div>
     </div>
@@ -546,6 +668,16 @@ function weeklyLossCategory(kg){
   return {label:'Aggressive', cls:'obese'};
 }
 
+function defaultPressUps(){
+  return { settings:{ targetType:'single', targetNumber:null, targetDays:null, targetDate:null }, sets:[] };
+}
+function defaultData(){
+  return {
+    settings:{ dob:null, heightCm:null, activityKey:'little', goalWeightKg:null, weeklyLossKg:DEFAULT_WEEKLY_LOSS_KG },
+    entries:[],
+    pressUps: defaultPressUps()
+  };
+}
 function loadData(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -554,10 +686,14 @@ function loadData(){
       if(data.settings && data.settings.weeklyLossKg == null){
         data.settings.weeklyLossKg = DEFAULT_WEEKLY_LOSS_KG; // migrate older saves
       }
+      // migrate saves from before the Press-Ups tool existed
+      if(!data.pressUps) data.pressUps = defaultPressUps();
+      if(!data.pressUps.settings) data.pressUps.settings = defaultPressUps().settings;
+      if(!Array.isArray(data.pressUps.sets)) data.pressUps.sets = [];
       return data;
     }
   }catch(e){}
-  return { settings:{ dob:null, heightCm:null, activityKey:'little', goalWeightKg:null, weeklyLossKg:DEFAULT_WEEKLY_LOSS_KG }, entries:[] };
+  return defaultData();
 }
 function saveData(d){
   d.updatedAtLocal = Date.now();
@@ -615,6 +751,10 @@ async function syncOnSignIn(){
       const localTime = DATA.updatedAtLocal || 0;
       if(remoteTime > localTime){
         DATA = remote;
+        if(DATA.settings && DATA.settings.weeklyLossKg == null) DATA.settings.weeklyLossKg = DEFAULT_WEEKLY_LOSS_KG;
+        if(!DATA.pressUps) DATA.pressUps = defaultPressUps();
+        if(!DATA.pressUps.settings) DATA.pressUps.settings = defaultPressUps().settings;
+        if(!Array.isArray(DATA.pressUps.sets)) DATA.pressUps.sets = [];
         localStorage.setItem(STORAGE_KEY, JSON.stringify(DATA));
         render();
       } else if(localTime > remoteTime){
@@ -643,6 +783,48 @@ function initCloudAuth(){
   });
 }
 let DATA = loadData();
+
+/* ---------------------------------------------------------------
+   MULTI-TOOL SHELL — which tool is currently showing is a pure UI
+   preference, stored locally only (not part of the synced DATA blob,
+   so switching tools never triggers a cloud write and signing in on
+   another device never changes which tool you land on).
+------------------------------------------------------------------ */
+const ACTIVE_TOOL_KEY = 'dailyTrackerActiveTool_v1';
+const TOOLS = [
+  { key:'calorie', label:'Calorie Calculator', icon:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 2v10l7 3"/></svg>` },
+  { key:'pressups', label:'Press-Ups', icon:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="6" r="3"/><path d="M4 20l5-6 3 3 3-3 5 6"/></svg>` },
+];
+let activeTool = localStorage.getItem(ACTIVE_TOOL_KEY) || 'calorie';
+
+function applyToolVisibility(){
+  document.querySelectorAll('.tool-panel').forEach(el=>{
+    el.style.display = (el.dataset.tool === activeTool) ? '' : 'none';
+  });
+}
+
+function openToolMenu(){
+  const list = document.getElementById('toolMenuList');
+  list.innerHTML = '';
+  TOOLS.forEach(t=>{
+    const item = document.createElement('div');
+    item.className = 'tool-item' + (activeTool===t.key ? ' active' : '');
+    item.innerHTML = t.icon + `<span>${t.label}</span>`;
+    item.onclick = ()=>{ switchTool(t.key); };
+    list.appendChild(item);
+  });
+  document.getElementById('toolMenuOverlay').classList.add('show');
+}
+function closeToolMenu(){
+  document.getElementById('toolMenuOverlay').classList.remove('show');
+}
+function switchTool(key){
+  activeTool = key;
+  localStorage.setItem(ACTIVE_TOOL_KEY, key);
+  closeToolMenu();
+  applyToolVisibility();
+  goTo('today');
+}
 
 const RANGE_OPTIONS = [
   { key:'7d',  label:'7D',  days:7   },
@@ -719,6 +901,51 @@ function settingsComplete(){
   return !!(s.dob && s.heightCm);
 }
 
+/* ---------------------------------------------------------------
+   PRESS-UPS — each logged set just has a timestamp + rep count.
+   There's no real "midnight rollover": a day's total is simply the
+   sum of that calendar day's sets, computed whenever it's looked at.
+   Today's total updates live as sets are added; once the date changes
+   it's automatically "yesterday's" locked-in total — no special code
+   needed for that transition.
+------------------------------------------------------------------ */
+function pressUpsDateKey(ts){
+  const d = new Date(ts);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+// Ascending array of {date, total} — one entry per day that has at least one set.
+function pressUpsDailyTotals(){
+  const map = {};
+  DATA.pressUps.sets.forEach(s=>{
+    const key = pressUpsDateKey(s.ts);
+    map[key] = (map[key]||0) + s.reps;
+  });
+  return Object.keys(map).sort().map(date=>({date, total:map[date]}));
+}
+// Ascending array of {date, cumulative} — running all-time total by day.
+function pressUpsCumulativeSeries(){
+  let running = 0;
+  return pressUpsDailyTotals().map(d=>{ running += d.total; return {date:d.date, cumulative:running}; });
+}
+function pressUpsAllTimeTotal(){
+  return DATA.pressUps.sets.reduce((s,x)=>s+x.reps,0);
+}
+function pressUpsTodaySets(){
+  const today = todayStr();
+  return DATA.pressUps.sets.filter(s=>pressUpsDateKey(s.ts)===today).sort((a,b)=>a.ts-b.ts);
+}
+function pressUpsTodayTotal(){
+  return pressUpsTodaySets().reduce((s,x)=>s+x.reps,0);
+}
+function pressUpsWindowedDaily(range){
+  const daily = pressUpsDailyTotals();
+  if(range==='all' || daily.length===0) return daily;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const opt = RANGE_OPTIONS.find(o=>o.key===range);
+  const start = dateAddDays(today, -(opt.days-1));
+  return daily.filter(d => new Date(d.date+'T00:00:00') >= start);
+}
+
 /* ---------------- rendering ---------------- */
 
 function render(){
@@ -726,6 +953,10 @@ function render(){
   renderSettingsView();
   renderTodayView();
   renderHistoryView();
+  renderPressUpsSettings();
+  renderPressUpsToday();
+  renderPressUpsHistory();
+  applyToolVisibility();
 }
 
 function renderSettingsView(){
@@ -964,6 +1195,13 @@ function dateAddDays(dateObj, days){
   return d;
 }
 function daysBetweenDates(a,b){ return (b-a)/86400000; }
+// Local calendar-date string (YYYY-MM-DD), same convention as todayStr().
+// Deliberately NOT toISOString().slice(0,10) — that formats in UTC, which
+// silently lands on the wrong day for anyone in a UTC+ timezone (including
+// the UK during BST) whenever local midnight falls in the previous UTC day.
+function localDateStr(dateObj){
+  return dateObj.getFullYear()+'-'+String(dateObj.getMonth()+1).padStart(2,'0')+'-'+String(dateObj.getDate()).padStart(2,'0');
+}
 // Predicted weight on a given date, per the fitted trend line.
 function predictedWeightOnDate(trend, dateObj){
   if(trend.slope==null) return null;
@@ -1141,6 +1379,188 @@ function buildChartSVG(entries, range){
   </svg>`;
 }
 
+/* ---------------- press-ups rendering ---------------- */
+
+function renderPressUpsToday(){
+  const repsInput = document.getElementById('inReps');
+  if(repsInput) repsInput.value = '';
+
+  const total = pressUpsTodayTotal();
+  document.getElementById('puTodayTotal').textContent = total;
+
+  const sets = pressUpsTodaySets();
+  const setsEl = document.getElementById('puTodaySets');
+  if(sets.length===0){
+    setsEl.innerHTML = '<p class="subtext">No sets logged yet today.</p>';
+  } else {
+    setsEl.innerHTML = sets.map(s=>`
+      <div class="goal-row">
+        <span class="l">${new Date(s.ts).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})}</span>
+        <span class="v" style="display:flex;align-items:center;gap:10px;">
+          ${s.reps} reps
+          <span class="row-del" onclick="deletePressUpSet(${s.ts})">✕</span>
+        </span>
+      </div>`).join('');
+  }
+
+  const pu = DATA.pressUps.settings;
+  const progressCard = document.getElementById('puProgressCard');
+  if(pu.targetNumber && pu.targetDate){
+    progressCard.style.display = 'block';
+    const current = pu.targetType==='cumulative' ? pressUpsAllTimeTotal() : total;
+    const pct = Math.min(100, Math.round(current/pu.targetNumber*100));
+    const today0 = new Date(); today0.setHours(0,0,0,0);
+    const daysLeft = Math.ceil(daysBetweenDates(today0, new Date(pu.targetDate+'T00:00:00')));
+    const targetLabel = pu.targetType==='cumulative' ? 'all-time total' : "today's total";
+    document.getElementById('puProgressBody').innerHTML = `
+      <div class="goal-row"><span class="l">Target</span><span class="v">${pu.targetNumber.toLocaleString()} (${targetLabel})</span></div>
+      <div class="goal-row"><span class="l">Current</span><span class="v">${current.toLocaleString()}</span></div>
+      <div class="goal-row"><span class="l">Progress</span><span class="v">${pct}%</span></div>
+      <div class="goal-row"><span class="l">Target date</span><span class="v">${new Date(pu.targetDate+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'})}</span></div>
+      <div class="goal-row"><span class="l">Days left</span><span class="v">${daysLeft>=0 ? daysLeft : 'Past due'}</span></div>
+    `;
+  } else {
+    progressCard.style.display = 'none';
+  }
+}
+
+let puHistoryRange = 'all';
+
+function buildPressUpsChartSVG(range){
+  const pu = DATA.pressUps.settings;
+  const cumulativeMode = pu.targetType === 'cumulative';
+  const series = cumulativeMode ? pressUpsCumulativeSeries() : pressUpsDailyTotals();
+  if(series.length===0) return '';
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const firstDate = new Date(series[0].date+'T00:00:00');
+  let domainStart;
+  if(range==='all'){
+    domainStart = firstDate;
+  } else {
+    const opt = RANGE_OPTIONS.find(o=>o.key===range);
+    domainStart = dateAddDays(today, -(opt.days-1));
+  }
+  const domainEnd = today;
+
+  const visible = series.filter(s=>{
+    const d = new Date(s.date+'T00:00:00');
+    return d >= domainStart && d <= domainEnd;
+  });
+  if(visible.length===0) return `<div class="empty">No entries in this range.</div>`;
+
+  const valueOf = s => cumulativeMode ? s.cumulative : s.total;
+
+  const W = 480, H = 220, padL = 34, padR = 10, padT = 14, padB = 24;
+  const totalSpanDays = Math.max(1, daysBetweenDates(domainStart, domainEnd));
+  const xAt = d => padL + (W-padL-padR) * (daysBetweenDates(domainStart, d) / totalSpanDays);
+
+  let minV = Math.min(0, ...visible.map(valueOf));
+  let maxV = Math.max(...visible.map(valueOf));
+  if(pu.targetNumber) maxV = Math.max(maxV, pu.targetNumber);
+  const span = (maxV - minV) || 1;
+  maxV += span*0.08;
+  const yAt = v => padT + (H-padT-padB) * (1 - (v-minV)/(maxV-minV));
+
+  const path = visible.map((s,i)=>{
+    const d = new Date(s.date+'T00:00:00');
+    return `${i===0?'M':'L'} ${xAt(d).toFixed(1)} ${yAt(valueOf(s)).toFixed(1)}`;
+  }).join(' ');
+
+  const dots = visible.map(s=>{
+    const d = new Date(s.date+'T00:00:00');
+    return `<circle cx="${xAt(d).toFixed(1)}" cy="${yAt(valueOf(s)).toFixed(1)}" r="3" fill="var(--accent)"/>`;
+  }).join('');
+
+  let targetLine = '';
+  if(pu.targetNumber){
+    const gy = yAt(pu.targetNumber).toFixed(1);
+    targetLine = `<line x1="${padL}" y1="${gy}" x2="${W-padR}" y2="${gy}" stroke="var(--muted)" stroke-dasharray="4 4" stroke-width="1.5"/>`;
+  }
+
+  const yTop = maxV.toFixed(0), yBot = minV.toFixed(0);
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+    <text x="2" y="${padT+6}" font-size="10" fill="var(--muted)">${yTop}</text>
+    <text x="2" y="${H-padB+4}" font-size="10" fill="var(--muted)">${yBot}</text>
+    ${targetLine}
+    <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+    ${dots}
+  </svg>`;
+}
+
+function renderPressUpsHistory(){
+  const daily = pressUpsDailyTotals();
+  const chartCard = document.getElementById('puChartCard');
+  const wrap = document.getElementById('puHistoryTableWrap');
+  const legendActual = document.getElementById('puLegendActual');
+
+  if(daily.length===0){
+    chartCard.style.display='none';
+    wrap.innerHTML = '<div class="empty">No sets logged yet. Add one from the Today tab.</div>';
+    return;
+  }
+
+  chartCard.style.display = 'block';
+  legendActual.textContent = DATA.pressUps.settings.targetType==='cumulative' ? 'Cumulative total' : 'Daily total';
+
+  const rangeRow = document.getElementById('puRangeRow');
+  rangeRow.innerHTML = '';
+  RANGE_OPTIONS.forEach(opt=>{
+    const btn = document.createElement('div');
+    btn.className = 'range-btn' + (puHistoryRange===opt.key ? ' active' : '');
+    btn.textContent = opt.label;
+    btn.onclick = ()=>{ puHistoryRange = opt.key; renderPressUpsHistory(); };
+    rangeRow.appendChild(btn);
+  });
+
+  document.getElementById('puChartWrap').innerHTML = buildPressUpsChartSVG(puHistoryRange);
+
+  const statEl = document.getElementById('puRangeStat');
+  const win = pressUpsWindowedDaily(puHistoryRange);
+  const rangeLabel = RANGE_OPTIONS.find(o=>o.key===puHistoryRange).label;
+  if(win.length>=1){
+    const sum = win.reduce((s,d)=>s+d.total,0);
+    statEl.textContent = `Total over ${rangeLabel==='All'?'all time':'last '+rangeLabel}: ${sum.toLocaleString()} reps across ${win.length} day${win.length===1?'':'s'}`;
+  } else {
+    statEl.textContent = 'No entries logged in this range.';
+  }
+
+  const rows = [...daily].reverse().map(d=>{
+    const setsForDay = DATA.pressUps.sets.filter(s=>pressUpsDateKey(s.ts)===d.date).sort((a,b)=>a.ts-b.ts);
+    const breakdown = setsForDay.map(s=>s.reps).join(' + ');
+    return `<tr>
+      <td>${fmtDateHuman(d.date)}</td>
+      <td class="num">${d.total}</td>
+      <td>${breakdown}</td>
+    </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `<table>
+    <thead><tr><th>Date</th><th>Total</th><th>Sets</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function renderPressUpsSettings(){
+  const pu = DATA.pressUps.settings;
+  document.getElementById('puTargetNumber').value = pu.targetNumber ?? '';
+  document.getElementById('puTargetDays').value = pu.targetDays ?? '';
+
+  const single = document.getElementById('puTypeSingle');
+  const cumulative = document.getElementById('puTypeCumulative');
+  single.className = 'ex-btn' + (pu.targetType!=='cumulative' ? ' selected' : '');
+  cumulative.className = 'ex-btn' + (pu.targetType==='cumulative' ? ' selected' : '');
+  single.onclick = ()=>{ DATA.pressUps.settings.targetType='single'; renderPressUpsSettings(); };
+  cumulative.onclick = ()=>{ DATA.pressUps.settings.targetType='cumulative'; renderPressUpsSettings(); };
+
+  const info = document.getElementById('puTargetDateInfo');
+  if(pu.targetDate){
+    info.textContent = `Current target date: ${new Date(pu.targetDate+'T00:00:00').toLocaleDateString(undefined,{day:'numeric',month:'long',year:'numeric'})}. Saving again with a new day-count recalculates this fresh from today.`;
+  } else {
+    info.textContent = "Set a target number and how many days you're giving yourself — saving converts that into a fixed target date, not a moving one.";
+  }
+}
+
 /* ---------------- actions ---------------- */
 
 function goTo(view){
@@ -1148,7 +1568,7 @@ function goTo(view){
     document.getElementById('view-'+v).classList.toggle('active', v===view);
     document.getElementById('nav-'+v).classList.toggle('active', v===view);
   });
-  if(view==='history') renderHistoryView();
+  if(view==='history'){ renderHistoryView(); renderPressUpsHistory(); }
   window.scrollTo(0,0);
 }
 
@@ -1207,6 +1627,38 @@ function deleteEntry(date){
   render();
 }
 
+function addPressUpSet(){
+  const reps = parseInt(document.getElementById('inReps').value, 10);
+  if(!reps || reps<=0){ showToast('Enter a valid rep count'); return; }
+  DATA.pressUps.sets.push({ ts: Date.now(), reps });
+  saveData(DATA);
+  showToast('Set added');
+  renderPressUpsToday();
+  renderPressUpsHistory();
+}
+
+function deletePressUpSet(ts){
+  DATA.pressUps.sets = DATA.pressUps.sets.filter(s=>s.ts !== ts);
+  saveData(DATA);
+  renderPressUpsToday();
+  renderPressUpsHistory();
+}
+
+function savePressUpSettings(){
+  const num = parseInt(document.getElementById('puTargetNumber').value, 10);
+  const days = parseInt(document.getElementById('puTargetDays').value, 10);
+  if(!num || num<=0){ showToast('Enter a valid target number'); return; }
+  if(!days || days<=0){ showToast('Enter a valid number of days'); return; }
+  const today0 = new Date(); today0.setHours(0,0,0,0);
+  DATA.pressUps.settings.targetNumber = num;
+  DATA.pressUps.settings.targetDays = days;
+  DATA.pressUps.settings.targetDate = localDateStr(dateAddDays(today0, days));
+  saveData(DATA);
+  showToast('Target saved');
+  render();
+  goTo('today');
+}
+
 async function exportData(){
   const filename = 'quick-calorie-backup-'+todayStr()+'.json';
   const blob = new Blob([JSON.stringify(DATA,null,2)], {type:'application/json'});
@@ -1248,6 +1700,9 @@ function importData(event){
       const ok = confirm(`Restore this backup? It contains ${count} logged day(s) and will replace everything currently saved on this device.`);
       if(!ok) return;
       if(parsed.settings.weeklyLossKg == null) parsed.settings.weeklyLossKg = DEFAULT_WEEKLY_LOSS_KG;
+      if(!parsed.pressUps) parsed.pressUps = defaultPressUps();
+      if(!parsed.pressUps.settings) parsed.pressUps.settings = defaultPressUps().settings;
+      if(!Array.isArray(parsed.pressUps.sets)) parsed.pressUps.sets = [];
       DATA = parsed;
       saveData(DATA);
       render();
@@ -1263,7 +1718,7 @@ function importData(event){
 
 function clearAllData(){
   if(confirm('This erases every entry and setting on this device. Continue?')){
-    DATA = { settings:{ dob:null, heightCm:null, activityKey:'little', goalWeightKg:null, weeklyLossKg:DEFAULT_WEEKLY_LOSS_KG }, entries:[] };
+    DATA = defaultData();
     saveData(DATA);
     render();
     goTo('settings');
@@ -1272,6 +1727,7 @@ function clearAllData(){
 }
 
 /* ---------------- init ---------------- */
+applyToolVisibility();
 render();
 goTo(settingsComplete() ? 'today' : 'settings');
 initCloudAuth();
