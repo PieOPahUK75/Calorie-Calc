@@ -78,4 +78,6 @@ All three tools render hand-rolled inline SVG line charts (`buildChartSVG` for c
 
 ### PWA plumbing
 
-`sw.js` precaches the app shell (`index.html`, `manifest.json`, icons) and serves cache-first with a network update-in-background for everything else, including cross-origin requests like the Firebase SDK (loaded with `crossorigin="anonymous"` specifically so the service worker can cache the response instead of getting an opaque, uncacheable one). Bump `CACHE_NAME` in `sw.js` if a change needs to force clients to drop stale cached assets.
+`sw.js` precaches the app shell (`index.html`, `manifest.json`, icons) and serves cache-first with a network update-in-background for everything else, including cross-origin requests like the Firebase SDK (loaded with `crossorigin="anonymous"` specifically so the service worker can cache the response instead of getting an opaque, uncacheable one).
+
+**Bump `CACHE_NAME` in `sw.js` on every change to `index.html`, `manifest.json`, or the icons — not just "when it seems needed."** Cache-first means an installed app can silently keep serving a stale `index.html` indefinitely; this bit in practice (a duration-field fix appeared to "do nothing" purely because the cache name hadn't changed). Even after bumping it, the user may need to fully close and reopen the installed app twice — once to pick up the new service worker and trigger a background refetch, once more to see the refreshed content — since `activate` only clears old cache entries, it doesn't force an immediate repaint of an already-open page.

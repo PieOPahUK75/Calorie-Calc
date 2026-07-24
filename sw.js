@@ -1,4 +1,4 @@
-const CACHE_NAME = 'quick-calorie-v1';
+const CACHE_NAME = 'daily-tracker-v2';
 const ASSETS = [
   './',
   './index.html',
