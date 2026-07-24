@@ -448,6 +448,32 @@
 
   </div>
 
+  <div class="tool-panel" data-tool="swimming" style="display:none;">
+
+    <div class="card">
+      <h2>Log a session</h2>
+      <label for="swDate">Date</label>
+      <input type="date" id="swDate">
+      <label for="swDuration">Duration (minutes)</label>
+      <input type="number" id="swDuration" inputmode="decimal" step="0.1" placeholder="e.g. 32.5">
+      <label for="swPoolLength">Pool length (m)  <span style="color:var(--muted);font-weight:400;">(editable per session)</span></label>
+      <input type="number" id="swPoolLength" inputmode="decimal" step="0.5" placeholder="e.g. 17">
+      <label for="swLengths">Lengths  <span style="color:var(--muted);font-weight:400;">(optional, leave blank for open water)</span></label>
+      <input type="number" id="swLengths" inputmode="numeric" step="1" placeholder="e.g. 40">
+      <label for="swDistance">Distance (m)</label>
+      <input type="number" id="swDistance" inputmode="decimal" step="1" placeholder="auto-fills from lengths">
+      <label for="swStrokes">Strokes  <span style="color:var(--muted);font-weight:400;">(total stroke count, optional)</span></label>
+      <input type="number" id="swStrokes" inputmode="numeric" step="1" placeholder="e.g. 620">
+      <button class="btn" onclick="saveSwimSession()">Save session</button>
+    </div>
+
+    <div class="card" id="swLastCard" style="display:none;">
+      <h2>Last session</h2>
+      <div id="swLastBody"></div>
+    </div>
+
+  </div>
+
   </section>
 
   <!-- HISTORY VIEW -->
@@ -488,6 +514,22 @@
       <h2>Log</h2>
       <div id="puHistoryTableWrap">
         <div class="empty">No sets logged yet.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tool-panel" data-tool="swimming" style="display:none;">
+    <div class="card" id="swChartCard" style="display:none;">
+      <h2>Swim trend</h2>
+      <div class="range-row" id="swMetricRow"></div>
+      <div class="range-row" id="swRangeRow"></div>
+      <div id="swChartWrap"></div>
+      <p class="subtext" id="swRangeStat"></p>
+    </div>
+    <div class="card">
+      <h2>Log</h2>
+      <div id="swHistoryTableWrap">
+        <div class="empty">No sessions logged yet.</div>
       </div>
     </div>
   </div>
@@ -545,6 +587,16 @@
       <p class="subtext" id="puTargetDateInfo"></p>
     </div>
     <button class="btn" onclick="savePressUpSettings()">Save settings</button>
+  </div>
+
+  <div class="tool-panel" data-tool="swimming" style="display:none;">
+    <div class="card">
+      <h2>Default pool length</h2>
+      <label for="swDefaultPoolLength">Pool length (m)</label>
+      <input type="number" id="swDefaultPoolLength" inputmode="decimal" step="0.5" placeholder="e.g. 17">
+      <p class="subtext">Pre-fills the pool length each time you log a session — still editable per session, so a different pool (or open water) never gets stuck with the wrong value.</p>
+    </div>
+    <button class="btn" onclick="saveSwimSettings()">Save settings</button>
   </div>
 
   <div class="card" style="margin-top:22px;" id="cloudCard">
@@ -671,12 +723,28 @@ function weeklyLossCategory(kg){
 function defaultPressUps(){
   return { settings:{ targetType:'single', targetNumber:null, targetDays:null, targetDate:null }, sets:[] };
 }
+const DEFAULT_POOL_LENGTH_M = 17;
+function defaultSwimming(){
+  return { settings:{ defaultPoolLengthM: DEFAULT_POOL_LENGTH_M }, sessions:[] };
+}
 function defaultData(){
   return {
     settings:{ dob:null, heightCm:null, activityKey:'little', goalWeightKg:null, weeklyLossKg:DEFAULT_WEEKLY_LOSS_KG },
     entries:[],
-    pressUps: defaultPressUps()
+    pressUps: defaultPressUps(),
+    swimming: defaultSwimming()
   };
+}
+function migratePressUps(data){
+  if(!data.pressUps) data.pressUps = defaultPressUps();
+  if(!data.pressUps.settings) data.pressUps.settings = defaultPressUps().settings;
+  if(!Array.isArray(data.pressUps.sets)) data.pressUps.sets = [];
+}
+function migrateSwimming(data){
+  if(!data.swimming) data.swimming = defaultSwimming();
+  if(!data.swimming.settings) data.swimming.settings = defaultSwimming().settings;
+  if(data.swimming.settings.defaultPoolLengthM == null) data.swimming.settings.defaultPoolLengthM = DEFAULT_POOL_LENGTH_M;
+  if(!Array.isArray(data.swimming.sessions)) data.swimming.sessions = [];
 }
 function loadData(){
   try{
@@ -686,10 +754,8 @@ function loadData(){
       if(data.settings && data.settings.weeklyLossKg == null){
         data.settings.weeklyLossKg = DEFAULT_WEEKLY_LOSS_KG; // migrate older saves
       }
-      // migrate saves from before the Press-Ups tool existed
-      if(!data.pressUps) data.pressUps = defaultPressUps();
-      if(!data.pressUps.settings) data.pressUps.settings = defaultPressUps().settings;
-      if(!Array.isArray(data.pressUps.sets)) data.pressUps.sets = [];
+      migratePressUps(data);   // migrate saves from before the Press-Ups tool existed
+      migrateSwimming(data);   // migrate saves from before the Swimming tool existed
       return data;
     }
   }catch(e){}
@@ -752,9 +818,8 @@ async function syncOnSignIn(){
       if(remoteTime > localTime){
         DATA = remote;
         if(DATA.settings && DATA.settings.weeklyLossKg == null) DATA.settings.weeklyLossKg = DEFAULT_WEEKLY_LOSS_KG;
-        if(!DATA.pressUps) DATA.pressUps = defaultPressUps();
-        if(!DATA.pressUps.settings) DATA.pressUps.settings = defaultPressUps().settings;
-        if(!Array.isArray(DATA.pressUps.sets)) DATA.pressUps.sets = [];
+        migratePressUps(DATA);
+        migrateSwimming(DATA);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(DATA));
         render();
       } else if(localTime > remoteTime){
@@ -794,6 +859,7 @@ const ACTIVE_TOOL_KEY = 'dailyTrackerActiveTool_v1';
 const TOOLS = [
   { key:'calorie', label:'Calorie Calculator', icon:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 2v10l7 3"/></svg>` },
   { key:'pressups', label:'Press-Ups', icon:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="6" r="3"/><path d="M4 20l5-6 3 3 3-3 5 6"/></svg>` },
+  { key:'swimming', label:'Swimming', icon:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="6" r="2"/><path d="M2 17c1.5 1.5 3 1.5 4.5 0s3-1.5 4.5 0 3 1.5 4.5 0 3-1.5 4.5 0"/><path d="M2 21c1.5 1.5 3 1.5 4.5 0s3-1.5 4.5 0 3 1.5 4.5 0 3-1.5 4.5 0"/><path d="M6 13l8-8 3 3-3 3"/></svg>` },
 ];
 let activeTool = localStorage.getItem(ACTIVE_TOOL_KEY) || 'calorie';
 
@@ -946,6 +1012,47 @@ function pressUpsWindowedDaily(range){
   return daily.filter(d => new Date(d.date+'T00:00:00') >= start);
 }
 
+/* ---------------------------------------------------------------
+   SWIMMING — each session is its own dated record (unlike Press-Ups'
+   running daily total), since a swim is a discrete event and you can
+   have more than one on the same day. The date field is editable in
+   the entry form specifically so past sessions can be backfilled.
+
+   Only session TOTALS are captured (not per-length splits), so the
+   derived metrics below are session averages, not per-length figures:
+     Avg pace   = seconds per 100m  = (durationSec / distanceM) * 100
+     Avg SWOLF  = (durationSec/lengths) + (strokes/lengths)   [per length]
+     Stroke rate = strokes per minute = strokes / (durationSec/60)
+------------------------------------------------------------------ */
+function swimSessionMetrics(s){
+  const paceSecPer100 = (s.distanceM > 0) ? (s.durationSec / s.distanceM) * 100 : null;
+  const swolf = (s.lengths > 0 && s.strokes > 0) ? (s.durationSec / s.lengths) + (s.strokes / s.lengths) : null;
+  const strokeRate = (s.durationSec > 0 && s.strokes > 0) ? s.strokes / (s.durationSec / 60) : null;
+  return { paceSecPer100, swolf, strokeRate };
+}
+function formatPace(sec){
+  if(sec==null) return '–';
+  const m = Math.floor(sec/60);
+  const s = Math.round(sec%60);
+  return `${m}:${String(s).padStart(2,'0')} /100m`;
+}
+function formatDuration(sec){
+  const m = Math.floor(sec/60);
+  const s = Math.round(sec%60);
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+function sortedSwimSessions(){
+  return [...DATA.swimming.sessions].sort((a,b)=> a.date===b.date ? a.id-b.id : a.date.localeCompare(b.date));
+}
+function swimWindowedSessions(range){
+  const sessions = sortedSwimSessions();
+  if(range==='all' || sessions.length===0) return sessions;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const opt = RANGE_OPTIONS.find(o=>o.key===range);
+  const start = dateAddDays(today, -(opt.days-1));
+  return sessions.filter(s => new Date(s.date+'T00:00:00') >= start);
+}
+
 /* ---------------- rendering ---------------- */
 
 function render(){
@@ -956,6 +1063,9 @@ function render(){
   renderPressUpsSettings();
   renderPressUpsToday();
   renderPressUpsHistory();
+  renderSwimmingSettings();
+  renderSwimmingToday();
+  renderSwimmingHistory();
   applyToolVisibility();
 }
 
@@ -1561,6 +1671,188 @@ function renderPressUpsSettings(){
   }
 }
 
+/* ---------------- swimming rendering ---------------- */
+
+function wireSwimAutoDistance(){
+  const lengthsEl = document.getElementById('swLengths');
+  const poolEl = document.getElementById('swPoolLength');
+  const distEl = document.getElementById('swDistance');
+  let manual = false;
+  distEl.oninput = ()=>{ manual = true; };
+  const recalc = ()=>{
+    if(manual) return;
+    const lengths = parseFloat(lengthsEl.value);
+    const pool = parseFloat(poolEl.value);
+    if(lengths>0 && pool>0) distEl.value = Math.round(lengths*pool);
+  };
+  lengthsEl.oninput = recalc;
+  poolEl.oninput = recalc;
+}
+
+function renderSwimmingToday(){
+  document.getElementById('swDate').value = todayStr();
+  document.getElementById('swPoolLength').value = DATA.swimming.settings.defaultPoolLengthM ?? '';
+  document.getElementById('swDuration').value = '';
+  document.getElementById('swLengths').value = '';
+  document.getElementById('swDistance').value = '';
+  document.getElementById('swStrokes').value = '';
+  wireSwimAutoDistance();
+
+  const sessions = sortedSwimSessions();
+  const lastCard = document.getElementById('swLastCard');
+  if(sessions.length===0){
+    lastCard.style.display = 'none';
+    return;
+  }
+  lastCard.style.display = 'block';
+  const last = sessions[sessions.length-1];
+  const m = swimSessionMetrics(last);
+  document.getElementById('swLastBody').innerHTML = `
+    <div class="goal-row"><span class="l">Date</span><span class="v">${fmtDateHuman(last.date)}</span></div>
+    <div class="goal-row"><span class="l">Duration</span><span class="v">${formatDuration(last.durationSec)}</span></div>
+    <div class="goal-row"><span class="l">Distance</span><span class="v">${last.distanceM.toLocaleString()} m</span></div>
+    <div class="goal-row"><span class="l">Lengths</span><span class="v">${last.lengths || '–'}</span></div>
+    <div class="divider"></div>
+    <div class="goal-row"><span class="l">Avg pace</span><span class="v">${formatPace(m.paceSecPer100)}</span></div>
+    <div class="goal-row"><span class="l">Avg SWOLF</span><span class="v">${m.swolf!=null ? m.swolf.toFixed(1) : '–'}</span></div>
+    <div class="goal-row"><span class="l">Stroke rate</span><span class="v">${m.strokeRate!=null ? m.strokeRate.toFixed(0)+'/min' : '–'}</span></div>
+  `;
+}
+
+let swHistoryRange = 'all';
+let swMetric = 'pace';
+const SWIM_METRICS = [
+  { key:'pace', label:'Pace' },
+  { key:'swolf', label:'SWOLF' },
+  { key:'strokeRate', label:'Stroke rate' },
+];
+
+function buildSwimmingChartSVG(range, metric){
+  const all = sortedSwimSessions();
+  if(all.length===0) return '';
+
+  const valueOf = s => {
+    const m = swimSessionMetrics(s);
+    if(metric==='pace') return m.paceSecPer100;
+    if(metric==='swolf') return m.swolf;
+    return m.strokeRate;
+  };
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const firstDate = new Date(all[0].date+'T00:00:00');
+  let domainStart;
+  if(range==='all'){
+    domainStart = firstDate;
+  } else {
+    const opt = RANGE_OPTIONS.find(o=>o.key===range);
+    domainStart = dateAddDays(today, -(opt.days-1));
+  }
+  const domainEnd = today;
+
+  const visible = all.filter(s=>{
+    const d = new Date(s.date+'T00:00:00');
+    return d >= domainStart && d <= domainEnd && valueOf(s) != null;
+  });
+  if(visible.length===0) return `<div class="empty">No sessions with this metric in this range.</div>`;
+
+  const W = 480, H = 220, padL = 34, padR = 10, padT = 14, padB = 24;
+  const totalSpanDays = Math.max(1, daysBetweenDates(domainStart, domainEnd));
+  const xAt = d => padL + (W-padL-padR) * (daysBetweenDates(domainStart, d) / totalSpanDays);
+
+  let minV = Math.min(...visible.map(valueOf));
+  let maxV = Math.max(...visible.map(valueOf));
+  const span = (maxV - minV) || 1;
+  minV -= span*0.08; maxV += span*0.08;
+  const yAt = v => padT + (H-padT-padB) * (1 - (v-minV)/(maxV-minV));
+
+  const path = visible.map((s,i)=>{
+    const d = new Date(s.date+'T00:00:00');
+    return `${i===0?'M':'L'} ${xAt(d).toFixed(1)} ${yAt(valueOf(s)).toFixed(1)}`;
+  }).join(' ');
+  const dots = visible.map(s=>{
+    const d = new Date(s.date+'T00:00:00');
+    return `<circle cx="${xAt(d).toFixed(1)}" cy="${yAt(valueOf(s)).toFixed(1)}" r="3" fill="var(--accent)"/>`;
+  }).join('');
+
+  const fmtY = v => metric==='pace' ? formatPace(v) : v.toFixed(1);
+
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+    <text x="2" y="${padT+6}" font-size="10" fill="var(--muted)">${fmtY(maxV)}</text>
+    <text x="2" y="${H-padB+4}" font-size="10" fill="var(--muted)">${fmtY(minV)}</text>
+    <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+    ${dots}
+  </svg>`;
+}
+
+function renderSwimmingHistory(){
+  const sessions = sortedSwimSessions();
+  const chartCard = document.getElementById('swChartCard');
+  const wrap = document.getElementById('swHistoryTableWrap');
+
+  if(sessions.length===0){
+    chartCard.style.display='none';
+    wrap.innerHTML = '<div class="empty">No sessions logged yet. Add one from the Today tab.</div>';
+    return;
+  }
+
+  chartCard.style.display = 'block';
+
+  const metricRow = document.getElementById('swMetricRow');
+  metricRow.innerHTML = '';
+  SWIM_METRICS.forEach(opt=>{
+    const btn = document.createElement('div');
+    btn.className = 'range-btn' + (swMetric===opt.key ? ' active' : '');
+    btn.textContent = opt.label;
+    btn.onclick = ()=>{ swMetric = opt.key; renderSwimmingHistory(); };
+    metricRow.appendChild(btn);
+  });
+
+  const rangeRow = document.getElementById('swRangeRow');
+  rangeRow.innerHTML = '';
+  RANGE_OPTIONS.forEach(opt=>{
+    const btn = document.createElement('div');
+    btn.className = 'range-btn' + (swHistoryRange===opt.key ? ' active' : '');
+    btn.textContent = opt.label;
+    btn.onclick = ()=>{ swHistoryRange = opt.key; renderSwimmingHistory(); };
+    rangeRow.appendChild(btn);
+  });
+
+  document.getElementById('swChartWrap').innerHTML = buildSwimmingChartSVG(swHistoryRange, swMetric);
+
+  const statEl = document.getElementById('swRangeStat');
+  const win = swimWindowedSessions(swHistoryRange);
+  const rangeLabel = RANGE_OPTIONS.find(o=>o.key===swHistoryRange).label;
+  if(win.length>=1){
+    const totalDist = win.reduce((s,x)=>s+x.distanceM,0);
+    statEl.textContent = `${win.length} session${win.length===1?'':'s'} over ${rangeLabel==='All'?'all time':'last '+rangeLabel}, totalling ${totalDist.toLocaleString()} m`;
+  } else {
+    statEl.textContent = 'No sessions logged in this range.';
+  }
+
+  const rows = [...sessions].reverse().map(s=>{
+    const m = swimSessionMetrics(s);
+    return `<tr>
+      <td>${fmtDateHuman(s.date)}</td>
+      <td class="num">${formatDuration(s.durationSec)}</td>
+      <td class="num">${s.distanceM.toLocaleString()}</td>
+      <td class="num">${s.lengths || '–'}</td>
+      <td class="num">${s.strokes || '–'}</td>
+      <td class="num">${formatPace(m.paceSecPer100)}</td>
+      <td class="num">${m.swolf!=null ? m.swolf.toFixed(1) : '–'}</td>
+      <td class="row-del" onclick="deleteSwimSession(${s.id})">✕</td>
+    </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `<table>
+    <thead><tr><th>Date</th><th>Time</th><th>Dist(m)</th><th>Lens</th><th>Strokes</th><th>Pace</th><th>SWOLF</th><th></th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function renderSwimmingSettings(){
+  document.getElementById('swDefaultPoolLength').value = DATA.swimming.settings.defaultPoolLengthM ?? '';
+}
+
 /* ---------------- actions ---------------- */
 
 function goTo(view){
@@ -1568,7 +1860,7 @@ function goTo(view){
     document.getElementById('view-'+v).classList.toggle('active', v===view);
     document.getElementById('nav-'+v).classList.toggle('active', v===view);
   });
-  if(view==='history'){ renderHistoryView(); renderPressUpsHistory(); }
+  if(view==='history'){ renderHistoryView(); renderPressUpsHistory(); renderSwimmingHistory(); }
   window.scrollTo(0,0);
 }
 
@@ -1659,6 +1951,78 @@ function savePressUpSettings(){
   goTo('today');
 }
 
+function saveSwimSession(){
+  const date = document.getElementById('swDate').value || todayStr();
+  const durationMin = parseFloat(document.getElementById('swDuration').value);
+  const poolLengthM = parseFloat(document.getElementById('swPoolLength').value) || null;
+  const lengthsRaw = document.getElementById('swLengths').value;
+  const lengths = lengthsRaw==='' ? 0 : parseInt(lengthsRaw, 10);
+  const distanceRaw = document.getElementById('swDistance').value;
+  let distanceM = distanceRaw==='' ? null : parseFloat(distanceRaw);
+  const strokesRaw = document.getElementById('swStrokes').value;
+  const strokes = strokesRaw==='' ? 0 : parseInt(strokesRaw, 10);
+
+  if(!durationMin || durationMin<=0){ showToast('Enter a valid duration'); return; }
+  if(distanceM==null){
+    if(lengths>0 && poolLengthM>0) distanceM = lengths*poolLengthM;
+    else { showToast('Enter a distance, or lengths + pool length'); return; }
+  }
+
+  DATA.swimming.sessions.push({
+    id: Date.now(),
+    date,
+    durationSec: Math.round(durationMin*60),
+    poolLengthM: poolLengthM || null,
+    lengths: lengths || 0,
+    distanceM,
+    strokes: strokes || 0
+  });
+  saveData(DATA);
+  showToast('Session saved');
+  renderSwimmingToday();
+  renderSwimmingHistory();
+}
+
+function deleteSwimSession(id){
+  DATA.swimming.sessions = DATA.swimming.sessions.filter(s=>s.id!==id);
+  saveData(DATA);
+  renderSwimmingToday();
+  renderSwimmingHistory();
+}
+
+function saveSwimSettings(){
+  const val = parseFloat(document.getElementById('swDefaultPoolLength').value);
+  if(!val || val<=0){ showToast('Enter a valid pool length'); return; }
+  DATA.swimming.settings.defaultPoolLengthM = val;
+  saveData(DATA);
+  showToast('Settings saved');
+  render();
+  goTo('today');
+}
+
+// One-time backfill of two real historical sessions (from before the Swimming
+// tool existed), guarded by a flag so this only ever runs once and never
+// duplicates on later loads. Skips a date that already has a session, in case
+// it was already logged manually before this update was installed.
+const SWIM_SEED_FLAG = 'dailyTrackerSwimSeedV1Applied';
+function seedSwimSessions(){
+  if(localStorage.getItem(SWIM_SEED_FLAG)) return;
+  const seedSessions = [
+    { id: 1721500000001, date:'2026-07-20', durationSec: 20*60+36, poolLengthM:17, lengths:18, distanceM:306, strokes:420 },
+    { id: 1721500000002, date:'2026-07-22', durationSec: 23*60+58, poolLengthM:17, lengths:24, distanceM:408, strokes:588 },
+  ];
+  const existingDates = new Set(DATA.swimming.sessions.map(s=>s.date));
+  let added = false;
+  seedSessions.forEach(s=>{
+    if(!existingDates.has(s.date)){
+      DATA.swimming.sessions.push(s);
+      added = true;
+    }
+  });
+  if(added) saveData(DATA);
+  localStorage.setItem(SWIM_SEED_FLAG, '1');
+}
+
 async function exportData(){
   const filename = 'quick-calorie-backup-'+todayStr()+'.json';
   const blob = new Blob([JSON.stringify(DATA,null,2)], {type:'application/json'});
@@ -1700,9 +2064,8 @@ function importData(event){
       const ok = confirm(`Restore this backup? It contains ${count} logged day(s) and will replace everything currently saved on this device.`);
       if(!ok) return;
       if(parsed.settings.weeklyLossKg == null) parsed.settings.weeklyLossKg = DEFAULT_WEEKLY_LOSS_KG;
-      if(!parsed.pressUps) parsed.pressUps = defaultPressUps();
-      if(!parsed.pressUps.settings) parsed.pressUps.settings = defaultPressUps().settings;
-      if(!Array.isArray(parsed.pressUps.sets)) parsed.pressUps.sets = [];
+      migratePressUps(parsed);
+      migrateSwimming(parsed);
       DATA = parsed;
       saveData(DATA);
       render();
@@ -1728,6 +2091,7 @@ function clearAllData(){
 
 /* ---------------- init ---------------- */
 applyToolVisibility();
+seedSwimSessions();
 render();
 goTo(settingsComplete() ? 'today' : 'settings');
 initCloudAuth();

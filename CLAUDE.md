@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-Daily Tracker — a single-file, installable PWA (no backend, no build step) hosting multiple small self-contained "tools" behind one shared shell. Currently: a Calorie/weight-loss Calculator and a Press-Ups tracker. Ships as static files served directly over HTTPS (GitHub Pages, Netlify, etc.) and installs to a phone home screen via "Add to Home Screen" or a PWABuilder-generated APK.
+Daily Tracker — a single-file, installable PWA (no backend, no build step) hosting multiple small self-contained "tools" behind one shared shell. Currently: a Calorie/weight-loss Calculator, a Press-Ups tracker, and a Swimming tracker. Ships as static files served directly over HTTPS (GitHub Pages, Netlify, etc.) and installs to a phone home screen via "Add to Home Screen" or a PWABuilder-generated APK.
 
 ## Files
 
-- `index.html` — the entire app: markup, CSS, and JS in one file (~1700 lines). Virtually all work happens here.
+- `index.html` — the entire app: markup, CSS, and JS in one file (~2100 lines). Virtually all work happens here.
 - `manifest.json` — PWA manifest (name, icons, display mode).
 - `sw.js` — service worker, cache-first with network fallback, for offline installability.
 - `icon-192.png` / `icon-512.png` — app icons. There's no committed generator script; they were produced ad hoc with a short Pillow (PIL) script when last rebranded — regenerate similarly if needed.
@@ -40,17 +40,18 @@ The app hosts multiple independent "tools" behind one shared bottom nav (Today /
 
 ### Adding a new tool
 
-Since more tools are planned, the established pattern (used when Press-Ups was added alongside the Calorie Calculator) is:
+Since more tools are planned, the established pattern (used when Press-Ups and Swimming were added alongside the Calorie Calculator) is:
 
 1. Add `{key, label, icon}` to `TOOLS`.
 2. Add a `<div class="tool-panel" data-tool="yourkey">` inside each of the three `<section class="view">` blocks.
-3. Give the tool its own namespaced slice of `DATA` (e.g. `DATA.yourTool = {settings:{...}, ...}`), with a `defaultYourTool()` factory and a migration fallback wired into all four places existing data can arrive from: `loadData()`, the remote-adopt branch inside `syncOnSignIn()`, `importData()`, and `clearAllData()`. The Press-Ups additions in each of those four spots show the exact pattern to copy.
+3. Give the tool its own namespaced slice of `DATA` (e.g. `DATA.yourTool = {settings:{...}, ...}`), with a `defaultYourTool()` factory and a **single migration function** (e.g. `migrateYourTool(data)`) called from all four places existing data can arrive from: `loadData()`, the remote-adopt branch inside `syncOnSignIn()`, `importData()`, and `clearAllData()` (via `defaultData()`). Factoring the migration into one function (see `migratePressUps`/`migrateSwimming`) rather than inlining the same checks four times is the current convention — follow it for the next tool too.
 4. Write `renderYourToolToday/History/Settings()` functions and call them from `render()`, plus from `goTo('history')` if the tool has a History chart.
-5. Reuse `RANGE_OPTIONS` + a `windowedDaily`-style helper (see `pressUpsWindowedDaily`) for any date-bucketed history/chart, rather than inventing new range logic.
+5. Reuse `RANGE_OPTIONS` + a `windowed...`-style helper (see `pressUpsWindowedDaily` or `swimWindowedSessions`) for any date-bucketed history/chart, rather than inventing new range logic.
+6. Decide the record shape up front: **daily aggregate** (one row per calendar day, values accumulate through the day — Press-Ups' `sets[]` summed into `pressUpsDailyTotals()`) vs **discrete dated event** (one row per occurrence, multiple allowed per day, each with its own editable `date` field so past events can be backfilled — Swimming's `sessions[]`). Pick whichever matches how the activity is actually done; don't force one tool's shape onto a different kind of activity.
 
 ### Data & persistence
 
-- A single `DATA` object holds everything (`settings` + `entries` for the calorie tool, `pressUps` for the press-up tool), serialized as one blob to `localStorage` under `STORAGE_KEY = 'quickCalorieData_v1'` (the key name predates the app's rename to Daily Tracker — not worth changing since it would force a migration for no benefit).
+- A single `DATA` object holds everything (`settings` + `entries` for the calorie tool, `pressUps` for the press-up tool, `swimming` for the swim tracker), serialized as one blob to `localStorage` under `STORAGE_KEY = 'quickCalorieData_v1'` (the key name predates the app's rename to Daily Tracker — not worth changing since it would force a migration for no benefit).
 - `saveData(d)` is the single write path: stamps `updatedAtLocal`, writes localStorage, and fires `pushToCloud(d)`. New mutations should go through `saveData(DATA)`, not touch `localStorage` directly.
 - Per-entry settings snapshots: calorie `entries[]` rows store the `activityKey`/`weeklyLossKg` that were active at save time, so changing Settings only affects new entries, never recalculates history. `calcForEntry()` reads from the entry first, falling back to current global settings only for legacy entries that predate this. Use the same snapshot-on-write approach for any future tool where "what were my settings on day X" matters.
 
@@ -68,10 +69,12 @@ Since more tools are planned, the established pattern (used when Press-Ups was a
 - Weight-trend / goal-date prediction (`computeTrend`, `goalDateFromTrend`) is a least-squares linear regression over every logged entry's (day-offset, weight) pair — deliberately not a naive first-vs-last calculation, so missed weigh-ins don't skew it.
 - Press-Ups' target-date math is the opposite philosophy on purpose: a fixed, user-committed deadline (target count + days-to-achieve → resolved date), not a data-driven projection. Don't unify these two mechanics without checking with the user — they're intentionally different.
 - Any date computed programmatically and stored/compared as a `YYYY-MM-DD` string must use `localDateStr()` (or the same local-component pattern as `todayStr()`) — never `.toISOString().slice(0,10)`. That was a real shipped bug: `toISOString()` formats in UTC, which silently lands on the wrong calendar day for anyone in a UTC+ timezone (this app's actual user is in the UK) whenever local midnight falls in the previous UTC day.
+- Swimming only captures session **totals** (duration, distance, lengths, strokes), not a per-length breakdown, so its derived metrics (`swimSessionMetrics()`) are session averages, not true per-length figures: pace = seconds per 100m (`duration÷distance×100`), SWOLF = `(duration÷lengths)+(strokes÷lengths)`, stroke rate = `strokes÷(duration÷60)`. All three correctly return `null` (not `0` or `NaN`) when their inputs are missing (e.g. an open-water swim with no lengths/strokes) — preserve that when touching this code, the UI relies on `null` to render "–" instead of a misleading number.
+- Swimming's pool length is intentionally a **per-session** editable field (prefilled from a Settings default, `defaultPoolLengthM`), not a fixed global — the user swims in different pools and occasionally open water, so a single locked-in pool length would actively get in the way. `wireSwimAutoDistance()` auto-fills distance from `lengths × poolLength` but backs off the moment the user types into the distance field directly (a `manual` flag in that closure), so open-water distance entry isn't clobbered.
 
 ### Charts
 
-Both tools render hand-rolled inline SVG line charts (`buildChartSVG` for calorie, `buildPressUpsChartSVG` for press-ups) — no charting library, to keep the app dependency-free and small. Both take a `range` key from `RANGE_OPTIONS` (7d/30d/1y/all) and scale the x-axis by real calendar days (via `daysBetweenDates`/`dateAddDays`), not by entry index, so date gaps (missed check-ins) show up honestly rather than being compressed away.
+All three tools render hand-rolled inline SVG line charts (`buildChartSVG` for calorie, `buildPressUpsChartSVG` for press-ups, `buildSwimmingChartSVG` for swimming) — no charting library, to keep the app dependency-free and small. All take a `range` key from `RANGE_OPTIONS` (7d/30d/1y/all) and scale the x-axis by real calendar days (via `daysBetweenDates`/`dateAddDays`), not by entry index, so date gaps (missed check-ins) show up honestly rather than being compressed away. Swimming additionally has a metric toggle (`SWIM_METRICS`: pace/SWOLF/stroke rate) above the range selector, since which metric best shows "improvement" is a user choice, not a fixed one — a pattern worth reusing if a future tool has more than one metric worth trending.
 
 ### PWA plumbing
 

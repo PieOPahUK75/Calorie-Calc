@@ -2,7 +2,7 @@
 
 Five files: `index.html`, `manifest.json`, `sw.js`, `icon-192.png`, `icon-512.png`. Keep them together in one folder.
 
-This app now has two tools, switchable via the menu icon (☰) in the top-left: the original Calorie Calculator, and a new Press-Ups tracker. Both share one install, one Settings→Data backup/restore, and one Cloud sync — everything below still applies to the app as a whole.
+This app now has three tools, switchable via the menu icon (☰) in the top-left: the original Calorie Calculator, Press-Ups, and Swimming. All share one install, one Settings→Data backup/restore, and one Cloud sync — everything below still applies to the app as a whole.
 
 ## Option A — fastest: Add to Home Screen (no APK)
 1. Put the folder somewhere reachable (e.g. a private GitHub Pages repo, Netlify Drop, or your own web host — it must be served over `https://`, not opened as a local file).
@@ -34,6 +34,19 @@ Note: the spreadsheet's "Weekly Change" column summed the *next* 6 days rather t
 Log each set as you do it through the day (e.g. 8, then 5, then 2) — the Today tab shows a running total and lets you delete a mis-entered set. There's no real "midnight rollover" happening in the background (this is a static app with no server); a day's total is just the sum of that calendar day's sets, worked out fresh whenever you look at it. So today's total updates live as you add sets, and the moment the date changes it's automatically yesterday's locked-in total in History — no special handling needed.
 
 Targets are a fixed commitment, not a prediction: in Settings, pick whether you're aiming for a single-day total (e.g. "50 in one day") or a cumulative all-time total (e.g. "10,000 lifetime reps"), set the number, and how many days you're giving yourself — saving converts that into a fixed target date. The History chart plots either daily totals or the cumulative running total (matching whichever target type you picked) against a dashed target line, over the same 7D/30D/1Y/All ranges as the calorie tracker.
+
+## Swimming tracker
+
+Each swim is its own dated session (not a running daily total like Press-Ups), since you can swim more than once a day and might want to backfill a session from an earlier date — the date field on the entry form is editable for exactly that reason.
+
+Per session you log: duration (minutes), pool length (metres — pre-filled from your default in Settings, but editable every time, since you might swim a different pool or open water), lengths, distance, and total stroke count. Distance auto-fills as lengths × pool length but stays directly editable, so an open-water swim just needs distance typed in with lengths left blank.
+
+From those totals the app derives:
+- **Avg pace** — seconds per 100m (`duration ÷ distance × 100`), the standard swim pace figure.
+- **Avg SWOLF** — `(duration ÷ lengths) + (strokes ÷ lengths)`, the standard swim efficiency score (lower is better). This is a session average, not a per-length figure, since only session totals are logged rather than a per-length breakdown.
+- **Stroke rate** — strokes per minute (`strokes ÷ (duration ÷ 60)`).
+
+History has the same 7D/30D/1Y/All range picker as the other tools, plus a metric toggle above the chart (Pace / SWOLF / Stroke rate) so you can see whichever trend you care about.
 
 ## Cloud sync setup (optional)
 
