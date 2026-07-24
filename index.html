@@ -454,8 +454,15 @@
       <h2>Log a session</h2>
       <label for="swDate">Date</label>
       <input type="date" id="swDate">
-      <label for="swDuration">Duration (minutes)</label>
-      <input type="number" id="swDuration" inputmode="decimal" step="0.1" placeholder="e.g. 32.5">
+      <label>Duration</label>
+      <div style="display:flex;gap:8px;">
+        <div style="flex:1;">
+          <input type="number" id="swDurationMin" inputmode="numeric" step="1" placeholder="Minutes">
+        </div>
+        <div style="flex:1;">
+          <input type="number" id="swDurationSec" inputmode="numeric" step="1" min="0" max="59" placeholder="Seconds">
+        </div>
+      </div>
       <label for="swPoolLength">Pool length (m)  <span style="color:var(--muted);font-weight:400;">(editable per session)</span></label>
       <input type="number" id="swPoolLength" inputmode="decimal" step="0.5" placeholder="e.g. 17">
       <label for="swLengths">Lengths  <span style="color:var(--muted);font-weight:400;">(optional, leave blank for open water)</span></label>
@@ -1692,7 +1699,8 @@ function wireSwimAutoDistance(){
 function renderSwimmingToday(){
   document.getElementById('swDate').value = todayStr();
   document.getElementById('swPoolLength').value = DATA.swimming.settings.defaultPoolLengthM ?? '';
-  document.getElementById('swDuration').value = '';
+  document.getElementById('swDurationMin').value = '';
+  document.getElementById('swDurationSec').value = '';
   document.getElementById('swLengths').value = '';
   document.getElementById('swDistance').value = '';
   document.getElementById('swStrokes').value = '';
@@ -1953,7 +1961,9 @@ function savePressUpSettings(){
 
 function saveSwimSession(){
   const date = document.getElementById('swDate').value || todayStr();
-  const durationMin = parseFloat(document.getElementById('swDuration').value);
+  const durationMinPart = parseInt(document.getElementById('swDurationMin').value, 10) || 0;
+  const durationSecPart = parseInt(document.getElementById('swDurationSec').value, 10) || 0;
+  const durationSec = durationMinPart*60 + durationSecPart;
   const poolLengthM = parseFloat(document.getElementById('swPoolLength').value) || null;
   const lengthsRaw = document.getElementById('swLengths').value;
   const lengths = lengthsRaw==='' ? 0 : parseInt(lengthsRaw, 10);
@@ -1962,7 +1972,7 @@ function saveSwimSession(){
   const strokesRaw = document.getElementById('swStrokes').value;
   const strokes = strokesRaw==='' ? 0 : parseInt(strokesRaw, 10);
 
-  if(!durationMin || durationMin<=0){ showToast('Enter a valid duration'); return; }
+  if(!durationSec || durationSec<=0){ showToast('Enter a valid duration'); return; }
   if(distanceM==null){
     if(lengths>0 && poolLengthM>0) distanceM = lengths*poolLengthM;
     else { showToast('Enter a distance, or lengths + pool length'); return; }
@@ -1971,7 +1981,7 @@ function saveSwimSession(){
   DATA.swimming.sessions.push({
     id: Date.now(),
     date,
-    durationSec: Math.round(durationMin*60),
+    durationSec,
     poolLengthM: poolLengthM || null,
     lengths: lengths || 0,
     distanceM,

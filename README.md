@@ -39,7 +39,7 @@ Targets are a fixed commitment, not a prediction: in Settings, pick whether you'
 
 Each swim is its own dated session (not a running daily total like Press-Ups), since you can swim more than once a day and might want to backfill a session from an earlier date — the date field on the entry form is editable for exactly that reason.
 
-Per session you log: duration (minutes), pool length (metres — pre-filled from your default in Settings, but editable every time, since you might swim a different pool or open water), lengths, distance, and total stroke count. Distance auto-fills as lengths × pool length but stays directly editable, so an open-water swim just needs distance typed in with lengths left blank.
+Per session you log: duration (separate minutes and seconds fields), pool length (metres — pre-filled from your default in Settings, but editable every time, since you might swim a different pool or open water), lengths, distance, and total stroke count. Distance auto-fills as lengths × pool length but stays directly editable, so an open-water swim just needs distance typed in with lengths left blank.
 
 From those totals the app derives:
 - **Avg pace** — seconds per 100m (`duration ÷ distance × 100`), the standard swim pace figure.
