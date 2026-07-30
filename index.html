@@ -328,6 +328,37 @@
   .chart-legend span{display:inline-flex;align-items:center;gap:5px;}
   .chart-legend i{width:10px;height:10px;border-radius:2px;display:inline-block;}
 
+  .card-header-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+  .icon-btn{
+    background:var(--card-2);
+    border:1px solid var(--border);
+    color:var(--muted);
+    border-radius:8px;
+    padding:6px;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    flex-shrink:0;
+  }
+  .chart-modal-overlay{
+    display:none;
+    position:fixed;inset:0;
+    background:rgba(0,0,0,.65);
+    z-index:40;
+    align-items:center;
+    justify-content:center;
+    padding:16px;
+  }
+  .chart-modal-overlay.show{display:flex;}
+  .chart-modal-panel{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:16px;
+    width:100%;
+    max-width:720px;
+  }
+
   .subtext{font-size:12.5px;color:var(--muted);margin-top:6px;line-height:1.5;}
   .divider{height:1px;background:var(--border);margin:14px 0;}
   .goal-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;font-size:14px;}
@@ -347,6 +378,21 @@
     <div class="cloud-badge" id="cloudBadge"></div>
   </div>
 </header>
+
+<div class="chart-modal-overlay" id="chartModalOverlay" onclick="closeChartFullscreen()">
+  <div class="chart-modal-panel" onclick="event.stopPropagation()">
+    <div class="card-header-row">
+      <h2 style="margin:0;">Weight trend</h2>
+      <button class="icon-btn" title="Close" onclick="closeChartFullscreen()">✕</button>
+    </div>
+    <div id="chartModalWrap"></div>
+    <div class="chart-legend">
+      <span><i style="background:var(--accent)"></i>Actual</span>
+      <span><i style="background:var(--warn)"></i>Trend / forecast</span>
+      <span><i style="background:var(--muted)"></i>Goal</span>
+    </div>
+  </div>
+</div>
 
 <div class="tool-menu-overlay" id="toolMenuOverlay" onclick="closeToolMenu()">
   <div class="tool-menu-panel" onclick="event.stopPropagation()">
@@ -404,6 +450,13 @@
           <div class="l">Category</div>
         </div>
       </div>
+    </div>
+
+    <div class="card" id="lowestCard" style="display:none;">
+      <h2>Lowest weight</h2>
+      <div class="goal-row"><span class="l">Lowest recorded</span><span class="v" id="lwLowest">–</span></div>
+      <div class="goal-row"><span class="l">Current</span><span class="v" id="lwCurrent">–</span></div>
+      <div class="goal-row"><span class="l">Difference</span><span class="v" id="lwDiff">–</span></div>
     </div>
 
     <div class="card" id="goalCard" style="display:none;">
@@ -488,7 +541,12 @@
 
   <div class="tool-panel" data-tool="calorie">
     <div class="card" id="chartCard" style="display:none;">
-      <h2>Weight trend</h2>
+      <div class="card-header-row">
+        <h2 style="margin:0;">Weight trend</h2>
+        <button class="icon-btn" title="View larger" onclick="openChartFullscreen()">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+        </button>
+      </div>
       <div class="range-row" id="rangeRow"></div>
       <div id="chartWrap"></div>
       <div class="chart-legend">
@@ -1219,11 +1277,13 @@ function renderTodayView(){
   const resultsCard = document.getElementById('resultsCard');
   const bmiCard = document.getElementById('bmiCard');
   const goalCard = document.getElementById('goalCard');
+  const lowestCard = document.getElementById('lowestCard');
 
   if(!complete || entries.length===0){
     resultsCard.style.display='none';
     bmiCard.style.display='none';
     goalCard.style.display='none';
+    lowestCard.style.display='none';
     return;
   }
 
@@ -1246,6 +1306,14 @@ function renderTodayView(){
   pill.textContent = cat.label;
   pill.className = 'pill ' + cat.cls;
 
+  // Lowest weight card (shown regardless of whether a goal is set)
+  lowestCard.style.display='block';
+  const lowestEntry = entries.reduce((min,e)=> e.weightKg < min.weightKg ? e : min, entries[0]);
+  const diffFromLowest = latest.weightKg - lowestEntry.weightKg;
+  document.getElementById('lwLowest').textContent = lowestEntry.weightKg.toFixed(1) + ' kg  (' + fmtDateHuman(lowestEntry.date) + ')';
+  document.getElementById('lwCurrent').textContent = latest.weightKg.toFixed(1) + ' kg';
+  document.getElementById('lwDiff').textContent = diffFromLowest <= 0 ? 'At your lowest 🎉' : '+' + diffFromLowest.toFixed(1) + ' kg above lowest';
+
   // Goal card
   if(DATA.settings.goalWeightKg){
     goalCard.style.display='block';
@@ -1260,9 +1328,14 @@ function renderTodayView(){
     document.getElementById('gLost').textContent = (lost>=0?'':'+') + Math.abs(lost).toFixed(1) + ' kg' + (lost>=0?' lost':' gained');
     document.getElementById('gLeft').textContent = left>0 ? left.toFixed(1)+' kg to go' : 'Goal reached 🎉';
 
+    // Full-history trend drives the goal-date projection (more stable, robust to gaps).
     const trend = computeTrend(entries);
-    document.getElementById('gDailyChange').textContent = trend.avgDaily==null ? '–' : (trend.avgDaily>=0?'+':'') + trend.avgDaily.toFixed(3) + ' kg/day';
-    document.getElementById('gWeeklyChange').textContent = trend.avgWeekly==null ? '–' : (trend.avgWeekly>=0?'+':'') + trend.avgWeekly.toFixed(2) + ' kg/week';
+    // Recent trend (trailing ~30 days) drives the displayed avg daily/weekly change,
+    // so it reflects your current trajectory rather than an all-time average that
+    // can lag behind a recent speed-up or slow-down.
+    const recentTrend = computeRecentTrend(entries, 30);
+    document.getElementById('gDailyChange').textContent = recentTrend.avgDaily==null ? '–' : (recentTrend.avgDaily>=0?'+':'') + recentTrend.avgDaily.toFixed(3) + ' kg/day';
+    document.getElementById('gWeeklyChange').textContent = recentTrend.avgWeekly==null ? '–' : (recentTrend.avgWeekly>=0?'+':'') + recentTrend.avgWeekly.toFixed(2) + ' kg/week';
 
     const predEl = document.getElementById('gPrediction');
     const today = new Date();
@@ -1305,6 +1378,18 @@ function computeTrend(entries){
     intercept = (sumY - slope*sumX) / n;
   }
   return { avgDaily: slope, avgWeekly: slope*7, slope, intercept, x0 };
+}
+// Same regression as computeTrend, but fitted only over the trailing windowDays
+// of entries (falling back to the full history if that window has fewer than
+// 2 points). Used for the displayed "avg daily/weekly change" so it tracks your
+// current trajectory rather than an all-time figure that can lag behind a
+// recent speed-up or slow-down in your rate of loss/gain.
+function computeRecentTrend(entries, windowDays){
+  const today = new Date(); today.setHours(0,0,0,0);
+  const cutoff = dateAddDays(today, -(windowDays-1));
+  const recent = entries.filter(e => new Date(e.date+'T00:00:00') >= cutoff);
+  if(recent.length >= 2) return computeTrend(recent);
+  return computeTrend(entries);
 }
 function dateAddDays(dateObj, days){
   const d = new Date(dateObj.getTime());
@@ -1357,6 +1442,9 @@ function renderHistoryView(){
   });
 
   document.getElementById('chartWrap').innerHTML = buildChartSVG(entries, historyRange);
+  if(document.getElementById('chartModalOverlay').classList.contains('show')){
+    document.getElementById('chartModalWrap').innerHTML = buildChartSVG(entries, historyRange);
+  }
 
   const statEl = document.getElementById('rangeStat');
   const win = windowedEntries(entries, historyRange);
@@ -1395,6 +1483,16 @@ function renderHistoryView(){
   </table>`;
 }
 
+function openChartFullscreen(){
+  const entries = sortedEntries();
+  if(entries.length===0) return;
+  document.getElementById('chartModalWrap').innerHTML = buildChartSVG(entries, historyRange);
+  document.getElementById('chartModalOverlay').classList.add('show');
+}
+function closeChartFullscreen(){
+  document.getElementById('chartModalOverlay').classList.remove('show');
+}
+
 function buildChartSVG(entries, range){
   const goal = DATA.settings.goalWeightKg;
   const today = new Date(); today.setHours(0,0,0,0);
@@ -1412,16 +1510,26 @@ function buildChartSVG(entries, range){
 
   const trend = computeTrend(entries);
 
-  // For "all", stretch the right edge forward to show the forecast:
-  // to the projected goal-crossing date if there is one, otherwise a modest 30-day peek.
-  if(range==='all' && trend.slope!=null){
+  // Stretch the right edge forward to actually show a forecast, not just the
+  // historical fit. For "all", extend to the projected goal-crossing date if
+  // there is one (capped at a year out), otherwise a modest 30-day peek. For
+  // 7D/30D/1Y, extend forward by the same length as the range itself, so the
+  // forecast portion is proportional to how zoomed-in the view is rather than
+  // stopping dead at "today" (which made the trend line look like it only
+  // ever pointed backwards).
+  if(trend.slope!=null){
     let forecastEnd;
-    const goalDate = goal ? goalDateFromTrend(trend, goal) : null;
-    if(goalDate && goalDate > today){
-      const capped = dateAddDays(today, 365);
-      forecastEnd = goalDate < capped ? goalDate : capped;
+    if(range==='all'){
+      const goalDate = goal ? goalDateFromTrend(trend, goal) : null;
+      if(goalDate && goalDate > today){
+        const capped = dateAddDays(today, 365);
+        forecastEnd = goalDate < capped ? goalDate : capped;
+      } else {
+        forecastEnd = dateAddDays(today, 30);
+      }
     } else {
-      forecastEnd = dateAddDays(today, 30);
+      const opt = RANGE_OPTIONS.find(o=>o.key===range);
+      forecastEnd = dateAddDays(today, opt.days);
     }
     if(forecastEnd > domainEnd) domainEnd = forecastEnd;
   }
@@ -1437,7 +1545,13 @@ function buildChartSVG(entries, range){
 
   let minW = Math.min(...visible.map(e=>e.weightKg));
   let maxW = Math.max(...visible.map(e=>e.weightKg));
-  if(goal){ minW = Math.min(minW, goal); maxW = Math.max(maxW, goal); }
+  // Only force the goal weight into the y-scale for the "all" view. Forcing it
+  // into 7D/30D/1Y as well made zoomed-in views look artificially flat, since a
+  // goal weight far below/above the visible window stretched the scale way
+  // beyond the actual variation in that window. Short ranges now scale to the
+  // real data (+ forecast) only; the goal line is still drawn but may simply
+  // fall outside a tightly-zoomed view, which is expected when zooming in.
+  if(goal && range==='all'){ minW = Math.min(minW, goal); maxW = Math.max(maxW, goal); }
 
   // Sample the fitted trend line across the whole visible domain (historical fit + any forecast).
   let trendSamples = [];
@@ -1486,8 +1600,8 @@ function buildChartSVG(entries, range){
   const yTop = maxW.toFixed(0), yBot = minW.toFixed(0);
 
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
-    <text x="2" y="${padT+6}" font-size="10" fill="var(--muted)">${yTop}</text>
-    <text x="2" y="${H-padB+4}" font-size="10" fill="var(--muted)">${yBot}</text>
+    <text x="2" y="${padT+8}" font-size="15" font-weight="600" fill="var(--muted)">${yTop}</text>
+    <text x="2" y="${H-padB+2}" font-size="15" font-weight="600" fill="var(--muted)">${yBot}</text>
     ${goalLine}
     ${todayLine}
     ${trendPath ? `<path d="${trendPath}" fill="none" stroke="var(--warn)" stroke-width="2" stroke-dasharray="3 3"/>` : ''}
@@ -1597,8 +1711,8 @@ function buildPressUpsChartSVG(range){
 
   const yTop = maxV.toFixed(0), yBot = minV.toFixed(0);
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
-    <text x="2" y="${padT+6}" font-size="10" fill="var(--muted)">${yTop}</text>
-    <text x="2" y="${H-padB+4}" font-size="10" fill="var(--muted)">${yBot}</text>
+    <text x="2" y="${padT+8}" font-size="15" font-weight="600" fill="var(--muted)">${yTop}</text>
+    <text x="2" y="${H-padB+2}" font-size="15" font-weight="600" fill="var(--muted)">${yBot}</text>
     ${targetLine}
     <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
     ${dots}
@@ -1785,8 +1899,8 @@ function buildSwimmingChartSVG(range, metric){
   const fmtY = v => metric==='pace' ? formatPace(v) : v.toFixed(1);
 
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
-    <text x="2" y="${padT+6}" font-size="10" fill="var(--muted)">${fmtY(maxV)}</text>
-    <text x="2" y="${H-padB+4}" font-size="10" fill="var(--muted)">${fmtY(minV)}</text>
+    <text x="2" y="${padT+8}" font-size="15" font-weight="600" fill="var(--muted)">${fmtY(maxV)}</text>
+    <text x="2" y="${H-padB+2}" font-size="15" font-weight="600" fill="var(--muted)">${fmtY(minV)}</text>
     <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
     ${dots}
   </svg>`;
