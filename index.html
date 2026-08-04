@@ -556,6 +556,19 @@
       </div>
       <p class="subtext" id="rangeStat"></p>
     </div>
+
+    <div class="card" id="weeklyChartCard" style="display:none;">
+      <h2>Weekly progress</h2>
+      <p class="subtext" style="margin-top:-6px;margin-bottom:12px;">Change from each Monday to the next, estimated from your logged weigh-ins even if you didn't weigh in on the Monday itself.</p>
+      <div class="range-row" id="weeklyRangeRow"></div>
+      <div id="weeklyChartWrap"></div>
+      <div class="chart-legend">
+        <span><i style="background:var(--accent)"></i>Lost</span>
+        <span><i style="background:var(--bad)"></i>Gained</span>
+      </div>
+      <p class="subtext" id="weeklyRangeStat"></p>
+    </div>
+
     <div class="card">
       <h2>Log</h2>
       <div id="historyTableWrap">
@@ -964,6 +977,7 @@ const RANGE_OPTIONS = [
   { key:'all', label:'All', days:null },
 ];
 let historyRange = 'all';
+let weeklyRange = 'all';
 
 function windowedEntries(entries, range){
   if(range==='all' || entries.length===0) return entries;
@@ -1425,6 +1439,7 @@ function renderHistoryView(){
 
   if(entries.length===0){
     chartCard.style.display='none';
+    document.getElementById('weeklyChartCard').style.display='none';
     wrap.innerHTML = '<div class="empty">No entries yet. Add one from the Today tab.</div>';
     return;
   }
@@ -1456,6 +1471,38 @@ function renderHistoryView(){
     statEl.textContent = `Only one entry in this range so far — log a few more to see a change.`;
   } else {
     statEl.textContent = `No entries logged in this range.`;
+  }
+
+  // Weekly (Monday-to-Monday) progress chart
+  const weeklyChartCard = document.getElementById('weeklyChartCard');
+  const allWeeklyChanges = computeWeeklyChanges(entries);
+  if(allWeeklyChanges.length===0){
+    weeklyChartCard.style.display='none';
+  } else {
+    weeklyChartCard.style.display='block';
+    const weeklyRangeRow = document.getElementById('weeklyRangeRow');
+    weeklyRangeRow.innerHTML = '';
+    RANGE_OPTIONS.forEach(opt=>{
+      const btn = document.createElement('div');
+      btn.className = 'range-btn' + (weeklyRange===opt.key ? ' active' : '');
+      btn.textContent = opt.label;
+      btn.onclick = ()=>{ weeklyRange = opt.key; renderHistoryView(); };
+      weeklyRangeRow.appendChild(btn);
+    });
+
+    document.getElementById('weeklyChartWrap').innerHTML = buildWeeklyChangeChart(entries, weeklyRange);
+
+    let shownChanges = allWeeklyChanges;
+    if(weeklyRange!=='all'){
+      const opt = RANGE_OPTIONS.find(o=>o.key===weeklyRange);
+      const cutoff = dateAddDays(new Date(new Date().setHours(0,0,0,0)), -(opt.days-1));
+      shownChanges = allWeeklyChanges.filter(c=>c.weekEnd >= cutoff);
+      if(shownChanges.length===0) shownChanges = allWeeklyChanges.slice(-1);
+    }
+    const weeklyStatEl = document.getElementById('weeklyRangeStat');
+    const avg = shownChanges.reduce((s,c)=>s+c.change,0) / shownChanges.length;
+    const weekWord = shownChanges.length===1 ? 'week' : 'weeks';
+    weeklyStatEl.textContent = `${shownChanges.length} ${weekWord} shown · averaging ${avg>=0?'+':''}${avg.toFixed(2)} kg/week`;
   }
 
   // table, most recent first (always shows full history, independent of the chart range)
@@ -1498,13 +1545,19 @@ function buildChartSVG(entries, range){
   const today = new Date(); today.setHours(0,0,0,0);
   const firstDate = new Date(entries[0].date+'T00:00:00');
 
-  // Domain (date range shown on the x-axis)
+  // Domain (date range shown on the x-axis). Never start before your first
+  // entry: if you've only been logging for a few days, a fixed 7/30/365-day
+  // lookback would otherwise leave dead blank space on the left before data
+  // began. Clamping to firstDate makes the actual line fill the width you
+  // actually have data for, while a full history still gets the normal
+  // fixed-length window.
   let domainStart;
   if(range==='all'){
     domainStart = firstDate;
   } else {
     const opt = RANGE_OPTIONS.find(o=>o.key===range);
-    domainStart = dateAddDays(today, -(opt.days-1));
+    const nominalStart = dateAddDays(today, -(opt.days-1));
+    domainStart = nominalStart > firstDate ? nominalStart : firstDate;
   }
   let domainEnd = today;
 
@@ -1610,6 +1663,120 @@ function buildChartSVG(entries, range){
   </svg>`;
 }
 
+/* ---------------- weekly (Monday-to-Monday) change chart ---------------- */
+
+// The Monday on or before the given date (i.e. the start of that calendar week).
+function mondayOnOrBefore(dateObj){
+  const day = dateObj.getDay(); // 0=Sun..6=Sat
+  const diff = (day===0) ? 6 : day-1;
+  return dateAddDays(dateObj, -diff);
+}
+
+// Best-available weight estimate for an arbitrary date, given actual logged
+// entries (ascending by date). If there's an exact entry on that date, use it.
+// Otherwise linearly interpolate between the nearest logged entries before and
+// after it, so a week can be "measured" even if you didn't weigh in on the
+// Monday itself. Returns null if the date falls outside the range that can be
+// interpolated (i.e. before the first or after the last entry) — deliberately
+// not extrapolated, since a value outside the logged range can't actually be
+// determined.
+function estimatedWeightOnDate(entries, dateObj){
+  const t = dateObj.getTime();
+  let prev = null, next = null;
+  for(const e of entries){
+    const et = new Date(e.date+'T00:00:00').getTime();
+    if(et <= t) prev = e;
+    if(et >= t && !next) next = e;
+  }
+  if(!prev || !next) return null;
+  if(prev.date === next.date) return prev.weightKg;
+  const pt = new Date(prev.date+'T00:00:00').getTime();
+  const nt = new Date(next.date+'T00:00:00').getTime();
+  const frac = (t - pt) / (nt - pt);
+  return prev.weightKg + (next.weightKg - prev.weightKg) * frac;
+}
+
+// One weight value per Monday, spanning from the Monday of your first entry's
+// week to the Monday of your last entry's week. Values are interpolated where
+// there's no exact Monday weigh-in. The very first boundary (if your first
+// entry wasn't itself on a Monday) falls back to that first entry's weight,
+// since there's no earlier data to interpolate from.
+function computeWeeklyBoundaries(entries){
+  if(entries.length===0) return [];
+  const firstDate = new Date(entries[0].date+'T00:00:00');
+  const lastDate = new Date(entries[entries.length-1].date+'T00:00:00');
+  const firstMonday = mondayOnOrBefore(firstDate);
+  const lastMonday = mondayOnOrBefore(lastDate);
+  const boundaries = [];
+  let d = firstMonday;
+  while(d <= lastMonday){
+    let w = estimatedWeightOnDate(entries, d);
+    if(w==null && d <= firstDate) w = entries[0].weightKg;
+    if(w==null && d >= lastDate) w = entries[entries.length-1].weightKg;
+    if(w!=null) boundaries.push({ date:new Date(d.getTime()), weightKg:w });
+    d = dateAddDays(d, 7);
+  }
+  return boundaries;
+}
+
+// The change in weight from each Monday-boundary to the next.
+function computeWeeklyChanges(entries){
+  const boundaries = computeWeeklyBoundaries(entries);
+  const changes = [];
+  for(let i=1;i<boundaries.length;i++){
+    changes.push({
+      weekStart: boundaries[i-1].date,
+      weekEnd: boundaries[i].date,
+      startWeight: boundaries[i-1].weightKg,
+      endWeight: boundaries[i].weightKg,
+      change: boundaries[i].weightKg - boundaries[i-1].weightKg
+    });
+  }
+  return changes;
+}
+
+function buildWeeklyChangeChart(entries, range){
+  const allChanges = computeWeeklyChanges(entries);
+  if(allChanges.length===0){
+    return `<div class="empty">Log at least two weeks of entries to see weekly progress.</div>`;
+  }
+
+  let changes = allChanges;
+  if(range!=='all'){
+    const opt = RANGE_OPTIONS.find(o=>o.key===range);
+    const today = new Date(); today.setHours(0,0,0,0);
+    const cutoff = dateAddDays(today, -(opt.days-1));
+    changes = allChanges.filter(c => c.weekEnd >= cutoff);
+    if(changes.length===0) changes = allChanges.slice(-1);
+  }
+
+  const W = 480, H = 200, padL = 40, padR = 10, padT = 14, padB = 20;
+  const maxAbs = Math.max(0.2, ...changes.map(c=>Math.abs(c.change)));
+  const yMax = maxAbs * 1.15, yMin = -maxAbs * 1.15;
+  const yAt = v => padT + (H-padT-padB) * (1 - (v-yMin)/(yMax-yMin));
+  const zeroY = yAt(0);
+
+  const n = changes.length;
+  const slotW = (W-padL-padR)/n;
+  const barW = Math.max(4, Math.min(28, slotW*0.6));
+
+  const bars = changes.map((c,i)=>{
+    const cx = padL + slotW*i + slotW/2;
+    const y1 = yAt(c.change);
+    const top = Math.min(zeroY, y1);
+    const h = Math.max(1.5, Math.abs(y1 - zeroY));
+    const color = c.change < -0.01 ? 'var(--accent)' : (c.change > 0.01 ? 'var(--bad)' : 'var(--muted)');
+    return `<rect x="${(cx-barW/2).toFixed(1)}" y="${top.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="2.5" fill="${color}"/>`;
+  }).join('');
+
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+    <text x="2" y="${padT+8}" font-size="15" font-weight="600" fill="var(--muted)">+${maxAbs.toFixed(1)}</text>
+    <text x="2" y="${H-padB+2}" font-size="15" font-weight="600" fill="var(--muted)">-${maxAbs.toFixed(1)}</text>
+    <line x1="${padL}" y1="${zeroY.toFixed(1)}" x2="${W-padR}" y2="${zeroY.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>
+    ${bars}
+  </svg>`;
+}
+
 /* ---------------- press-ups rendering ---------------- */
 
 function renderPressUpsToday(){
@@ -1665,12 +1832,14 @@ function buildPressUpsChartSVG(range){
 
   const today = new Date(); today.setHours(0,0,0,0);
   const firstDate = new Date(series[0].date+'T00:00:00');
+  // Never start before the first logged day (see buildChartSVG for rationale).
   let domainStart;
   if(range==='all'){
     domainStart = firstDate;
   } else {
     const opt = RANGE_OPTIONS.find(o=>o.key===range);
-    domainStart = dateAddDays(today, -(opt.days-1));
+    const nominalStart = dateAddDays(today, -(opt.days-1));
+    domainStart = nominalStart > firstDate ? nominalStart : firstDate;
   }
   const domainEnd = today;
 
@@ -1862,12 +2031,14 @@ function buildSwimmingChartSVG(range, metric){
 
   const today = new Date(); today.setHours(0,0,0,0);
   const firstDate = new Date(all[0].date+'T00:00:00');
+  // Never start before the first logged day (see buildChartSVG for rationale).
   let domainStart;
   if(range==='all'){
     domainStart = firstDate;
   } else {
     const opt = RANGE_OPTIONS.find(o=>o.key===range);
-    domainStart = dateAddDays(today, -(opt.days-1));
+    const nominalStart = dateAddDays(today, -(opt.days-1));
+    domainStart = nominalStart > firstDate ? nominalStart : firstDate;
   }
   const domainEnd = today;
 
