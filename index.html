@@ -976,6 +976,9 @@ const RANGE_OPTIONS = [
   { key:'1y',  label:'1Y',  days:365 },
   { key:'all', label:'All', days:null },
 ];
+// Weekly progress chart has no use for 7D (barely more than one data point), so it
+// gets its own trimmed range list instead of the shared RANGE_OPTIONS.
+const WEEKLY_RANGE_OPTIONS = RANGE_OPTIONS.filter(o=>o.key!=='7d');
 let historyRange = 'all';
 let weeklyRange = 'all';
 
@@ -1482,7 +1485,7 @@ function renderHistoryView(){
     weeklyChartCard.style.display='block';
     const weeklyRangeRow = document.getElementById('weeklyRangeRow');
     weeklyRangeRow.innerHTML = '';
-    RANGE_OPTIONS.forEach(opt=>{
+    WEEKLY_RANGE_OPTIONS.forEach(opt=>{
       const btn = document.createElement('div');
       btn.className = 'range-btn' + (weeklyRange===opt.key ? ' active' : '');
       btn.textContent = opt.label;
@@ -1494,7 +1497,7 @@ function renderHistoryView(){
 
     let shownChanges = allWeeklyChanges;
     if(weeklyRange!=='all'){
-      const opt = RANGE_OPTIONS.find(o=>o.key===weeklyRange);
+      const opt = WEEKLY_RANGE_OPTIONS.find(o=>o.key===weeklyRange);
       const cutoff = dateAddDays(new Date(new Date().setHours(0,0,0,0)), -(opt.days-1));
       shownChanges = allWeeklyChanges.filter(c=>c.weekEnd >= cutoff);
       if(shownChanges.length===0) shownChanges = allWeeklyChanges.slice(-1);
@@ -1743,7 +1746,7 @@ function buildWeeklyChangeChart(entries, range){
 
   let changes = allChanges;
   if(range!=='all'){
-    const opt = RANGE_OPTIONS.find(o=>o.key===range);
+    const opt = WEEKLY_RANGE_OPTIONS.find(o=>o.key===range);
     const today = new Date(); today.setHours(0,0,0,0);
     const cutoff = dateAddDays(today, -(opt.days-1));
     changes = allChanges.filter(c => c.weekEnd >= cutoff);
@@ -1751,29 +1754,35 @@ function buildWeeklyChangeChart(entries, range){
   }
 
   const W = 480, H = 200, padL = 40, padR = 10, padT = 14, padB = 20;
+
+  // Date-scaled x-axis, same convention as the daily chart. Consecutive weekly
+  // points are always exactly 7 days apart (computeWeeklyBoundaries produces
+  // one per week with no skips), so this naturally comes out evenly spaced.
+  const domainStart = changes[0].weekStart;
+  const domainEnd = changes[changes.length-1].weekEnd;
+  const totalSpanDays = Math.max(1, daysBetweenDates(domainStart, domainEnd));
+  const xAt = d => padL + (W-padL-padR) * (daysBetweenDates(domainStart, d) / totalSpanDays);
+
   const maxAbs = Math.max(0.2, ...changes.map(c=>Math.abs(c.change)));
   const yMax = maxAbs * 1.15, yMin = -maxAbs * 1.15;
   const yAt = v => padT + (H-padT-padB) * (1 - (v-yMin)/(yMax-yMin));
   const zeroY = yAt(0);
 
-  const n = changes.length;
-  const slotW = (W-padL-padR)/n;
-  const barW = Math.max(4, Math.min(28, slotW*0.6));
+  const linePath = changes.map((c,i)=>{
+    return `${i===0?'M':'L'} ${xAt(c.weekEnd).toFixed(1)} ${yAt(c.change).toFixed(1)}`;
+  }).join(' ');
 
-  const bars = changes.map((c,i)=>{
-    const cx = padL + slotW*i + slotW/2;
-    const y1 = yAt(c.change);
-    const top = Math.min(zeroY, y1);
-    const h = Math.max(1.5, Math.abs(y1 - zeroY));
+  const dots = changes.map(c=>{
     const color = c.change < -0.01 ? 'var(--accent)' : (c.change > 0.01 ? 'var(--bad)' : 'var(--muted)');
-    return `<rect x="${(cx-barW/2).toFixed(1)}" y="${top.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="2.5" fill="${color}"/>`;
+    return `<circle cx="${xAt(c.weekEnd).toFixed(1)}" cy="${yAt(c.change).toFixed(1)}" r="3.5" fill="${color}"/>`;
   }).join('');
 
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
     <text x="2" y="${padT+8}" font-size="15" font-weight="600" fill="var(--muted)">+${maxAbs.toFixed(1)}</text>
     <text x="2" y="${H-padB+2}" font-size="15" font-weight="600" fill="var(--muted)">-${maxAbs.toFixed(1)}</text>
     <line x1="${padL}" y1="${zeroY.toFixed(1)}" x2="${W-padR}" y2="${zeroY.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>
-    ${bars}
+    <path d="${linePath}" fill="none" stroke="var(--muted)" stroke-width="2"/>
+    ${dots}
   </svg>`;
 }
 
