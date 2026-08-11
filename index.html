@@ -323,7 +323,15 @@
     cursor:pointer;
   }
   .range-btn.active{background:rgba(34,193,123,.15);border-color:var(--accent);color:var(--accent);}
-  svg.chart{width:100%;height:auto;display:block;}
+  svg.chart{display:block;}
+  /* Charts scroll horizontally once there's enough data that the SVG renders
+     wider than its container (see dynamicChartWidth()) — short/rolling ranges
+     stay at 100% width with no scrollbar, dense ones expand instead of
+     squashing every point into the same fixed width. */
+  #chartWrap, #chartModalWrap, #puChartWrap, #swChartWrap, #weeklyChartWrap{
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+  }
   .chart-legend{display:flex;gap:16px;font-size:11.5px;color:var(--muted);margin-top:8px;flex-wrap:wrap;}
   .chart-legend span{display:inline-flex;align-items:center;gap:5px;}
   .chart-legend i{width:10px;height:10px;border-radius:2px;display:inline-block;}
@@ -1414,6 +1422,36 @@ function dateAddDays(dateObj, days){
   return d;
 }
 function daysBetweenDates(a,b){ return (b-a)/86400000; }
+
+// All line/bar charts share this: the SVG's viewBox width normally sits at a
+// single-screen baseline (480 units), but grows past it once the visible date
+// span is dense enough that squeezing it into 480 would cram points/labels
+// together unreadably. Paired with preserveAspectRatio="none" + a fixed
+// rendered height and an overflow-x:auto wrapper, this makes short/rolling
+// ranges fill the screen exactly as before, while long/dense ranges (1Y, All)
+// expand sideways and scroll instead of squashing.
+const CHART_BASE_W = 480;
+const CHART_PX_PER_DAY = 4;
+function dynamicChartWidth(totalSpanDays){
+  return Math.max(CHART_BASE_W, totalSpanDays * CHART_PX_PER_DAY);
+}
+function fmtAxisDate(d){
+  return d.toLocaleDateString(undefined, { day:'numeric', month:'short' });
+}
+// Evenly-spaced date labels along the bottom of a chart (by fraction of the
+// domain, not by fixed day counts, so it works for any span length).
+function buildXAxisLabels(domainStart, domainEnd, xAt, W, padL, padR, y){
+  const availableW = W - padL - padR;
+  const tickCount = Math.max(2, Math.min(5, Math.floor(availableW/70)+1));
+  let labels = '';
+  for(let i=0;i<tickCount;i++){
+    const frac = tickCount===1 ? 0 : i/(tickCount-1);
+    const d = dateAddDays(domainStart, daysBetweenDates(domainStart, domainEnd)*frac);
+    const anchor = i===0 ? 'start' : (i===tickCount-1 ? 'end' : 'middle');
+    labels += `<text x="${xAt(d).toFixed(1)}" y="${y}" font-size="13" font-weight="600" fill="var(--muted)" text-anchor="${anchor}">${fmtAxisDate(d)}</text>`;
+  }
+  return labels;
+}
 // Local calendar-date string (YYYY-MM-DD), same convention as todayStr().
 // Deliberately NOT toISOString().slice(0,10) — that formats in UTC, which
 // silently lands on the wrong day for anyone in a UTC+ timezone (including
@@ -1566,26 +1604,21 @@ function buildChartSVG(entries, range){
 
   const trend = computeTrend(entries);
 
-  // Stretch the right edge forward to actually show a forecast, not just the
-  // historical fit. For "all", extend to the projected goal-crossing date if
-  // there is one (capped at a year out), otherwise a modest 30-day peek. For
-  // 7D/30D/1Y, extend forward by the same length as the range itself, so the
-  // forecast portion is proportional to how zoomed-in the view is rather than
-  // stopping dead at "today" (which made the trend line look like it only
-  // ever pointed backwards).
-  if(trend.slope!=null){
+  // Stretch the right edge forward to actually show a forecast, but only for
+  // "all": extend to the projected goal-crossing date if there is one (capped
+  // at a year out), otherwise a modest 30-day peek. 7D/30D/1Y are rolling
+  // windows — domainEnd stays at "today" so the full chart width is used for
+  // the actual historical window you asked to see, rather than giving up half
+  // of it to a forecast. The trend/forecast line still renders on 7D/30D/1Y,
+  // just as a fit over the visible window rather than projecting forward.
+  if(range==='all' && trend.slope!=null){
     let forecastEnd;
-    if(range==='all'){
-      const goalDate = goal ? goalDateFromTrend(trend, goal) : null;
-      if(goalDate && goalDate > today){
-        const capped = dateAddDays(today, 365);
-        forecastEnd = goalDate < capped ? goalDate : capped;
-      } else {
-        forecastEnd = dateAddDays(today, 30);
-      }
+    const goalDate = goal ? goalDateFromTrend(trend, goal) : null;
+    if(goalDate && goalDate > today){
+      const capped = dateAddDays(today, 365);
+      forecastEnd = goalDate < capped ? goalDate : capped;
     } else {
-      const opt = RANGE_OPTIONS.find(o=>o.key===range);
-      forecastEnd = dateAddDays(today, opt.days);
+      forecastEnd = dateAddDays(today, 30);
     }
     if(forecastEnd > domainEnd) domainEnd = forecastEnd;
   }
@@ -1595,8 +1628,9 @@ function buildChartSVG(entries, range){
     return `<div class="empty">No entries in this range.</div>`;
   }
 
-  const W = 480, H = 220, padL = 34, padR = 10, padT = 14, padB = 24;
+  const H = 220, padL = 34, padR = 10, padT = 14, padB = 34;
   const totalSpanDays = Math.max(1, daysBetweenDates(domainStart, domainEnd));
+  const W = dynamicChartWidth(totalSpanDays);
   const xAt = d => padL + (W-padL-padR) * (daysBetweenDates(domainStart, d) / totalSpanDays);
 
   let minW = Math.min(...visible.map(e=>e.weightKg));
@@ -1654,10 +1688,12 @@ function buildChartSVG(entries, range){
   }
 
   const yTop = maxW.toFixed(0), yBot = minW.toFixed(0);
+  const xLabels = buildXAxisLabels(domainStart, domainEnd, xAt, W, padL, padR, H-8);
 
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:max(100%, ${W}px);height:220px;" xmlns="http://www.w3.org/2000/svg">
     <text x="2" y="${padT+8}" font-size="15" font-weight="600" fill="var(--muted)">${yTop}</text>
     <text x="2" y="${H-padB+2}" font-size="15" font-weight="600" fill="var(--muted)">${yBot}</text>
+    ${xLabels}
     ${goalLine}
     ${todayLine}
     ${trendPath ? `<path d="${trendPath}" fill="none" stroke="var(--warn)" stroke-width="2" stroke-dasharray="3 3"/>` : ''}
@@ -1753,7 +1789,7 @@ function buildWeeklyChangeChart(entries, range){
     if(changes.length===0) changes = allChanges.slice(-1);
   }
 
-  const W = 480, H = 200, padL = 40, padR = 10, padT = 14, padB = 20;
+  const H = 200, padL = 40, padR = 10, padT = 14, padB = 30;
 
   // Date-scaled x-axis, same convention as the daily chart. Consecutive weekly
   // points are always exactly 7 days apart (computeWeeklyBoundaries produces
@@ -1761,6 +1797,7 @@ function buildWeeklyChangeChart(entries, range){
   const domainStart = changes[0].weekStart;
   const domainEnd = changes[changes.length-1].weekEnd;
   const totalSpanDays = Math.max(1, daysBetweenDates(domainStart, domainEnd));
+  const W = dynamicChartWidth(totalSpanDays);
   const xAt = d => padL + (W-padL-padR) * (daysBetweenDates(domainStart, d) / totalSpanDays);
 
   const maxAbs = Math.max(0.2, ...changes.map(c=>Math.abs(c.change)));
@@ -1777,9 +1814,12 @@ function buildWeeklyChangeChart(entries, range){
     return `<circle cx="${xAt(c.weekEnd).toFixed(1)}" cy="${yAt(c.change).toFixed(1)}" r="3.5" fill="${color}"/>`;
   }).join('');
 
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+  const xLabels = buildXAxisLabels(domainStart, domainEnd, xAt, W, padL, padR, H-8);
+
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:max(100%, ${W}px);height:200px;" xmlns="http://www.w3.org/2000/svg">
     <text x="2" y="${padT+8}" font-size="15" font-weight="600" fill="var(--muted)">+${maxAbs.toFixed(1)}</text>
     <text x="2" y="${H-padB+2}" font-size="15" font-weight="600" fill="var(--muted)">-${maxAbs.toFixed(1)}</text>
+    ${xLabels}
     <line x1="${padL}" y1="${zeroY.toFixed(1)}" x2="${W-padR}" y2="${zeroY.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>
     <path d="${linePath}" fill="none" stroke="var(--muted)" stroke-width="2"/>
     ${dots}
@@ -1860,8 +1900,9 @@ function buildPressUpsChartSVG(range){
 
   const valueOf = s => cumulativeMode ? s.cumulative : s.total;
 
-  const W = 480, H = 220, padL = 34, padR = 10, padT = 14, padB = 24;
+  const H = 220, padL = 34, padR = 10, padT = 14, padB = 34;
   const totalSpanDays = Math.max(1, daysBetweenDates(domainStart, domainEnd));
+  const W = dynamicChartWidth(totalSpanDays);
   const xAt = d => padL + (W-padL-padR) * (daysBetweenDates(domainStart, d) / totalSpanDays);
 
   let minV = Math.min(0, ...visible.map(valueOf));
@@ -1888,9 +1929,11 @@ function buildPressUpsChartSVG(range){
   }
 
   const yTop = maxV.toFixed(0), yBot = minV.toFixed(0);
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+  const xLabels = buildXAxisLabels(domainStart, domainEnd, xAt, W, padL, padR, H-8);
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:max(100%, ${W}px);height:220px;" xmlns="http://www.w3.org/2000/svg">
     <text x="2" y="${padT+8}" font-size="15" font-weight="600" fill="var(--muted)">${yTop}</text>
     <text x="2" y="${H-padB+2}" font-size="15" font-weight="600" fill="var(--muted)">${yBot}</text>
+    ${xLabels}
     ${targetLine}
     <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
     ${dots}
@@ -2057,8 +2100,9 @@ function buildSwimmingChartSVG(range, metric){
   });
   if(visible.length===0) return `<div class="empty">No sessions with this metric in this range.</div>`;
 
-  const W = 480, H = 220, padL = 34, padR = 10, padT = 14, padB = 24;
+  const H = 220, padL = 34, padR = 10, padT = 14, padB = 34;
   const totalSpanDays = Math.max(1, daysBetweenDates(domainStart, domainEnd));
+  const W = dynamicChartWidth(totalSpanDays);
   const xAt = d => padL + (W-padL-padR) * (daysBetweenDates(domainStart, d) / totalSpanDays);
 
   let minV = Math.min(...visible.map(valueOf));
@@ -2077,10 +2121,12 @@ function buildSwimmingChartSVG(range, metric){
   }).join('');
 
   const fmtY = v => metric==='pace' ? formatPace(v) : v.toFixed(1);
+  const xLabels = buildXAxisLabels(domainStart, domainEnd, xAt, W, padL, padR, H-8);
 
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:max(100%, ${W}px);height:220px;" xmlns="http://www.w3.org/2000/svg">
     <text x="2" y="${padT+8}" font-size="15" font-weight="600" fill="var(--muted)">${fmtY(maxV)}</text>
     <text x="2" y="${H-padB+2}" font-size="15" font-weight="600" fill="var(--muted)">${fmtY(minV)}</text>
+    ${xLabels}
     <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
     ${dots}
   </svg>`;
