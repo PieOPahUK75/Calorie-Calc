@@ -290,6 +290,15 @@
   }
   nav button svg{width:22px;height:22px;}
   nav button.active{color:var(--accent);}
+  .app-version{
+    position:absolute;
+    top:3px;right:8px;
+    font-size:9.5px;
+    color:var(--muted);
+    opacity:.55;
+    letter-spacing:.02em;
+    pointer-events:none;
+  }
 
   .toast{
     position:fixed;
@@ -705,6 +714,7 @@
 <div class="toast" id="toast"></div>
 
 <nav>
+  <span class="app-version" id="appVersion"></span>
   <button id="nav-today" class="active" onclick="goTo('today')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 2v10l7 3"/></svg>
     Today
@@ -786,6 +796,12 @@ try{
 }
 
 const STORAGE_KEY = 'quickCalorieData_v1';
+
+// Shown in the corner of the bottom nav bar so you can visually confirm an
+// update actually landed on your phone (installed PWAs cache aggressively —
+// see sw.js). Bump this every time CACHE_NAME in sw.js is bumped, using the
+// same number, so the two always agree.
+const APP_VERSION = 'v7';
 
 const EXERCISE_LEVELS = [
   { key:'little',  label:'Little to no Exercise', mult:1.2   },
@@ -1423,17 +1439,33 @@ function dateAddDays(dateObj, days){
 }
 function daysBetweenDates(a,b){ return (b-a)/86400000; }
 
-// All line/bar charts share this: the SVG's viewBox width normally sits at a
-// single-screen baseline (480 units), but grows past it once the visible date
-// span is dense enough that squeezing it into 480 would cram points/labels
-// together unreadably. Paired with preserveAspectRatio="none" + a fixed
-// rendered height and an overflow-x:auto wrapper, this makes short/rolling
-// ranges fill the screen exactly as before, while long/dense ranges (1Y, All)
-// expand sideways and scroll instead of squashing.
+// All line/bar charts share this: the SVG's viewBox width is a single-screen
+// baseline (480 units) UNLESS the visible date span is longer than that
+// range's "reference window" (how many days should fill one screen at rest),
+// in which case it grows proportionally so the reference window still maps to
+// one screen-width and the rest becomes horizontally scrollable. 7D/30D use
+// their own full window as the reference, so they can never exceed the
+// baseline and never scroll. 1Y/All use a smaller reference (3 months / 6
+// months) than their full window, so a full year or full history zooms out to
+// "3/6 months per screen" and scrolls for the rest — but if you don't have
+// that much history yet, it's clamped back to the baseline so the available
+// data still fills the whole screen instead of sitting small and dense.
 const CHART_BASE_W = 480;
-const CHART_PX_PER_DAY = 4;
-function dynamicChartWidth(totalSpanDays){
-  return Math.max(CHART_BASE_W, totalSpanDays * CHART_PX_PER_DAY);
+const CHART_REFERENCE_DAYS = { '7d':7, '30d':30, '1y':90, 'all':180 };
+function dynamicChartWidth(totalSpanDays, range){
+  const referenceDays = CHART_REFERENCE_DAYS[range] || CHART_BASE_W;
+  const pxPerDay = CHART_BASE_W / referenceDays;
+  return Math.max(CHART_BASE_W, totalSpanDays * pxPerDay);
+}
+// The CSS width to actually render a chart at: exactly 100% of its container
+// when the data fits the reference window (so it behaves like a normal
+// responsive element, no scrollbar, on any screen size), or an explicit fixed
+// pixel width when it doesn't (deliberately wider than the container so the
+// wrapper's overflow-x:auto kicks in). Never use width:max(100%, Wpx) here —
+// that forces a real minimum of Wpx even on phones narrower than that, which
+// is exactly the "scrolling even on 7D" bug this replaced.
+function chartWidthStyle(W){
+  return W > CHART_BASE_W ? `width:${W}px` : `width:100%`;
 }
 function fmtAxisDate(d){
   return d.toLocaleDateString(undefined, { day:'numeric', month:'short' });
@@ -1630,7 +1662,7 @@ function buildChartSVG(entries, range){
 
   const H = 220, padL = 34, padR = 10, padT = 14, padB = 34;
   const totalSpanDays = Math.max(1, daysBetweenDates(domainStart, domainEnd));
-  const W = dynamicChartWidth(totalSpanDays);
+  const W = dynamicChartWidth(totalSpanDays, range);
   const xAt = d => padL + (W-padL-padR) * (daysBetweenDates(domainStart, d) / totalSpanDays);
 
   let minW = Math.min(...visible.map(e=>e.weightKg));
@@ -1690,7 +1722,7 @@ function buildChartSVG(entries, range){
   const yTop = maxW.toFixed(0), yBot = minW.toFixed(0);
   const xLabels = buildXAxisLabels(domainStart, domainEnd, xAt, W, padL, padR, H-8);
 
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:max(100%, ${W}px);height:220px;" xmlns="http://www.w3.org/2000/svg">
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="${chartWidthStyle(W)};height:220px;" xmlns="http://www.w3.org/2000/svg">
     <text x="2" y="${padT+8}" font-size="15" font-weight="600" fill="var(--muted)">${yTop}</text>
     <text x="2" y="${H-padB+2}" font-size="15" font-weight="600" fill="var(--muted)">${yBot}</text>
     ${xLabels}
@@ -1797,7 +1829,7 @@ function buildWeeklyChangeChart(entries, range){
   const domainStart = changes[0].weekStart;
   const domainEnd = changes[changes.length-1].weekEnd;
   const totalSpanDays = Math.max(1, daysBetweenDates(domainStart, domainEnd));
-  const W = dynamicChartWidth(totalSpanDays);
+  const W = dynamicChartWidth(totalSpanDays, range);
   const xAt = d => padL + (W-padL-padR) * (daysBetweenDates(domainStart, d) / totalSpanDays);
 
   const maxAbs = Math.max(0.2, ...changes.map(c=>Math.abs(c.change)));
@@ -1816,7 +1848,7 @@ function buildWeeklyChangeChart(entries, range){
 
   const xLabels = buildXAxisLabels(domainStart, domainEnd, xAt, W, padL, padR, H-8);
 
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:max(100%, ${W}px);height:200px;" xmlns="http://www.w3.org/2000/svg">
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="${chartWidthStyle(W)};height:200px;" xmlns="http://www.w3.org/2000/svg">
     <text x="2" y="${padT+8}" font-size="15" font-weight="600" fill="var(--muted)">+${maxAbs.toFixed(1)}</text>
     <text x="2" y="${H-padB+2}" font-size="15" font-weight="600" fill="var(--muted)">-${maxAbs.toFixed(1)}</text>
     ${xLabels}
@@ -1902,7 +1934,7 @@ function buildPressUpsChartSVG(range){
 
   const H = 220, padL = 34, padR = 10, padT = 14, padB = 34;
   const totalSpanDays = Math.max(1, daysBetweenDates(domainStart, domainEnd));
-  const W = dynamicChartWidth(totalSpanDays);
+  const W = dynamicChartWidth(totalSpanDays, range);
   const xAt = d => padL + (W-padL-padR) * (daysBetweenDates(domainStart, d) / totalSpanDays);
 
   let minV = Math.min(0, ...visible.map(valueOf));
@@ -1930,7 +1962,7 @@ function buildPressUpsChartSVG(range){
 
   const yTop = maxV.toFixed(0), yBot = minV.toFixed(0);
   const xLabels = buildXAxisLabels(domainStart, domainEnd, xAt, W, padL, padR, H-8);
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:max(100%, ${W}px);height:220px;" xmlns="http://www.w3.org/2000/svg">
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="${chartWidthStyle(W)};height:220px;" xmlns="http://www.w3.org/2000/svg">
     <text x="2" y="${padT+8}" font-size="15" font-weight="600" fill="var(--muted)">${yTop}</text>
     <text x="2" y="${H-padB+2}" font-size="15" font-weight="600" fill="var(--muted)">${yBot}</text>
     ${xLabels}
@@ -2102,7 +2134,7 @@ function buildSwimmingChartSVG(range, metric){
 
   const H = 220, padL = 34, padR = 10, padT = 14, padB = 34;
   const totalSpanDays = Math.max(1, daysBetweenDates(domainStart, domainEnd));
-  const W = dynamicChartWidth(totalSpanDays);
+  const W = dynamicChartWidth(totalSpanDays, range);
   const xAt = d => padL + (W-padL-padR) * (daysBetweenDates(domainStart, d) / totalSpanDays);
 
   let minV = Math.min(...visible.map(valueOf));
@@ -2123,7 +2155,7 @@ function buildSwimmingChartSVG(range, metric){
   const fmtY = v => metric==='pace' ? formatPace(v) : v.toFixed(1);
   const xLabels = buildXAxisLabels(domainStart, domainEnd, xAt, W, padL, padR, H-8);
 
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:max(100%, ${W}px);height:220px;" xmlns="http://www.w3.org/2000/svg">
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="${chartWidthStyle(W)};height:220px;" xmlns="http://www.w3.org/2000/svg">
     <text x="2" y="${padT+8}" font-size="15" font-weight="600" fill="var(--muted)">${fmtY(maxV)}</text>
     <text x="2" y="${H-padB+2}" font-size="15" font-weight="600" fill="var(--muted)">${fmtY(minV)}</text>
     ${xLabels}
@@ -2440,6 +2472,7 @@ function clearAllData(){
 }
 
 /* ---------------- init ---------------- */
+document.getElementById('appVersion').textContent = APP_VERSION;
 applyToolVisibility();
 seedSwimSessions();
 render();
